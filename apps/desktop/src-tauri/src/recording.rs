@@ -11,6 +11,7 @@ use std::{
 use tauri::Manager;
 
 const CAPTURE_SCRIPT: &str = include_str!("../../../../spikes/audio-capture/audio.mjs");
+const RECORDING_PREFLIGHT_BYTES: u64 = 512 * 1024 * 1024;
 
 pub struct Recorder {
     active: Mutex<Option<ActiveRecording>>,
@@ -34,6 +35,21 @@ pub struct RecordingStatus {
     elapsed_seconds: u64,
     process_running: bool,
     paused: bool,
+    levels: Vec<AudioLevel>,
+    storage_available_bytes: Option<u64>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct AudioLevel {
+    name: String,
+    peak: f64,
+}
+
+#[derive(Deserialize)]
+struct LevelSnapshot {
+    tracks: Vec<AudioLevel>,
+    #[serde(rename = "storageAvailableBytes")]
+    storage_available_bytes: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -148,6 +164,17 @@ pub fn start_recording(
             .ok_or_else(|| "recording path has no parent".to_owned())?,
     )
     .map_err(|error| format!("Could not create recording storage: {error}"))?;
+    let available = available_storage_bytes(
+        recording_path
+            .parent()
+            .ok_or_else(|| "recording path has no parent".to_owned())?,
+    )?;
+    if available < RECORDING_PREFLIGHT_BYTES {
+        return Err(format!(
+            "Recording needs at least 512 MB free; only {} MB is available.",
+            available / 1024 / 1024
+        ));
+    }
 
     ensure_capture_dependencies()?;
     let mut command = Command::new("node");
@@ -215,6 +242,8 @@ pub fn start_recording(
         elapsed_seconds: 0,
         process_running: true,
         paused: false,
+        levels: Vec::new(),
+        storage_available_bytes: Some(available),
     })
 }
 
@@ -250,20 +279,11 @@ pub fn recording_status(recorder: tauri::State<'_, Recorder>) -> Result<Recordin
             elapsed_seconds: 0,
             process_running: false,
             paused: false,
+            levels: Vec::new(),
+            storage_available_bytes: None,
         });
     };
-    let process_running = recording
-        .child
-        .try_wait()
-        .map_err(|error| error.to_string())?
-        .is_none();
-    Ok(RecordingStatus {
-        active: true,
-        meeting_id: Some(recording.meeting_id.clone()),
-        elapsed_seconds: recording_elapsed(recording).as_secs(),
-        process_running,
-        paused: recording.paused_at.is_some(),
-    })
+    status_for(recording)
 }
 
 #[tauri::command]
@@ -480,6 +500,25 @@ fn pactl_output(arguments: &[&str]) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
 }
 
+fn available_storage_bytes(path: &Path) -> Result<u64, String> {
+    let output = Command::new("df")
+        .args(["-Pk"])
+        .arg(path)
+        .output()
+        .map_err(|error| format!("Could not check available storage: {error}"))?;
+    if !output.status.success() {
+        return Err("Could not check available storage before recording.".to_owned());
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let available_kib = text
+        .lines()
+        .last()
+        .and_then(|line| line.split_whitespace().nth(3))
+        .and_then(|value| value.parse::<u64>().ok())
+        .ok_or_else(|| "Could not understand available storage information.".to_owned())?;
+    Ok(available_kib.saturating_mul(1024))
+}
+
 fn parse_sources(output: &str) -> Vec<AudioSource> {
     output
         .lines()
@@ -585,12 +624,17 @@ fn status_for(recording: &mut ActiveRecording) -> Result<RecordingStatus, String
         .try_wait()
         .map_err(|error| error.to_string())?
         .is_none();
+    let snapshot = read_levels(&recording.output_path, recording.paused_at.is_some());
     Ok(RecordingStatus {
         active: true,
         meeting_id: Some(recording.meeting_id.clone()),
         elapsed_seconds: recording_elapsed(recording).as_secs(),
         process_running,
         paused: recording.paused_at.is_some(),
+        levels: snapshot
+            .as_ref()
+            .map_or_else(Vec::new, |value| value.tracks.clone()),
+        storage_available_bytes: snapshot.and_then(|value| value.storage_available_bytes),
     })
 }
 
@@ -603,6 +647,15 @@ fn read_manifest(recording_path: &Path) -> Result<CaptureManifest, String> {
         )
     })?;
     serde_json::from_str(&content).map_err(|error| format!("Invalid capture manifest: {error}"))
+}
+
+fn read_levels(recording_path: &Path, paused: bool) -> Option<LevelSnapshot> {
+    if paused {
+        return None;
+    }
+    fs::read_to_string(recording_path.join("levels.json"))
+        .ok()
+        .and_then(|content| serde_json::from_str::<LevelSnapshot>(&content).ok())
 }
 
 fn transition_after_capture(

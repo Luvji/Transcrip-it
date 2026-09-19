@@ -115,6 +115,8 @@ export interface RecordingStatus {
   elapsedSeconds: number;
   processRunning: boolean;
   paused: boolean;
+  levels: { name: string; peak: number }[];
+  storageAvailableBytes: number | null;
 }
 
 export interface CompletedRecording {
@@ -148,7 +150,7 @@ export const recordingApi = {
     return invoke("audio_devices");
   },
   async status(): Promise<RecordingStatus> {
-    if (!isTauri()) return { active: false, meetingId: null, elapsedSeconds: 0, processRunning: false, paused: false };
+    if (!isTauri()) return { active: false, meetingId: null, elapsedSeconds: 0, processRunning: false, paused: false, levels: [], storageAvailableBytes: null };
     return invoke("recording_status");
   },
   async stop(meetingId: string): Promise<CompletedRecording> {

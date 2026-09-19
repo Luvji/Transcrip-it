@@ -103,13 +103,15 @@ TRANSCRIP-IT - DEVELOPMENT TRACKER
       [DESC] Discover PulseAudio devices and offer microphone, system, or combined capture with optional WebRTC echo cancellation.
     $- [FT] [TI-0035] Implement start, pause, resume, and safe-stop controls
       [DESC] Enforce a single active recorder, persist lifecycle transitions, restore UI state after reload, and finalize capture safely.
-    @- [FT] [TI-0036] Display live audio levels and handle device changes
+    $- [FT] [TI-0036] Display live audio levels and handle device changes
+      [DESC] Publish normalized per-track peaks and surface capture-process or device failure while preserving completed chunks.
     $- [FT] [TI-0037] Write recoverable audio chunks and manifests
       [DESC] Flush progress periodically so forced termination preserves completed chunks.
       [DESC] Integrate atomic session manifests and one-minute PCM WAV chunks into private per-user application storage.
-    *- [ENH] [TI-0038] Prevent storage exhaustion during recording
+    $- [ENH] [TI-0038] Prevent storage exhaustion during recording
       [DESC] Estimate required space, warn at live thresholds, and stop gracefully when necessary.
-    *- [FT] [TI-0039] Play back separate captured tracks
+      [DESC] Require 512 MB free to start, report live capacity, and finalize safely at the 128 MB reserve.
+    @- [FT] [TI-0039] Play back separate captured tracks
       [DESC] The first iteration must capture and safely stop a ten-minute meeting, then play both tracks.
     *- [ENH] [TI-0040] Pass twenty controlled recording scenarios without lost audio
       [DESC] Cover long sessions, silence, disconnects, interruption, low disk space, cross-talk, and poor microphones.

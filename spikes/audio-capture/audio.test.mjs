@@ -9,9 +9,19 @@ import {
   createWavHeader,
   discoverAudioDevices,
   parseArguments,
+  pcmPeak,
   parseSourceList,
   WavChunkWriter,
 } from "./audio.mjs";
+
+test("measures normalized PCM peaks", () => {
+  const samples = Buffer.alloc(6);
+  samples.writeInt16LE(0, 0);
+  samples.writeInt16LE(-16_384, 2);
+  samples.writeInt16LE(32_767, 4);
+  assert.ok(pcmPeak(samples) > 0.99);
+  assert.equal(pcmPeak(Buffer.alloc(8)), 0);
+});
 
 test("parses PulseAudio source rows", () => {
   const sources = parseSourceList([

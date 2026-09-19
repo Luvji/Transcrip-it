@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { execFileSync, spawn } from "node:child_process";
-import { mkdir, open, readdir, rename, writeFile } from "node:fs/promises";
+import { mkdir, open, readdir, rename, statfs, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 
@@ -9,6 +9,7 @@ const DEFAULT_SAMPLE_RATE = 48_000;
 const DEFAULT_CHANNELS = 2;
 const DEFAULT_CHUNK_SECONDS = 60;
 const BITS_PER_SAMPLE = 16;
+const DEFAULT_MIN_FREE_BYTES = 128 * 1024 * 1024;
 
 export function parseSourceList(output) {
   return output
@@ -67,6 +68,14 @@ export function createWavHeader({ dataBytes, sampleRate, channels }) {
   header.write("data", 36, "ascii");
   header.writeUInt32LE(dataBytes, 40);
   return header;
+}
+
+export function pcmPeak(buffer) {
+  let peak = 0;
+  for (let offset = 0; offset + 1 < buffer.length; offset += 2) {
+    peak = Math.max(peak, Math.abs(buffer.readInt16LE(offset)) / 32_768);
+  }
+  return Math.min(1, peak);
 }
 
 export class WavChunkWriter {
@@ -277,6 +286,8 @@ function startCapture({ track, directory, sampleRate, channels, chunkSeconds }) 
     channels,
   }), { stdio: ["ignore", "pipe", "pipe"] });
   let diagnostics = "";
+  let lastPeak = 0;
+  let lastSampleAt = null;
   child.stderr.on("data", (chunk) => {
     diagnostics += chunk.toString();
     if (diagnostics.length > 16_384) diagnostics = diagnostics.slice(-16_384);
@@ -295,6 +306,8 @@ function startCapture({ track, directory, sampleRate, channels, chunkSeconds }) 
   const reading = (async () => {
     for await (const chunk of child.stdout) {
       firstSampleAt ??= new Date().toISOString();
+      lastSampleAt = Date.now();
+      lastPeak = pcmPeak(chunk);
       await writer.write(chunk);
     }
   })();
@@ -306,6 +319,7 @@ function startCapture({ track, directory, sampleRate, channels, chunkSeconds }) 
     reading,
     firstSampleAt: () => firstSampleAt,
     diagnostics: () => diagnostics.trim(),
+    peak: () => Date.now() - (lastSampleAt ?? 0) > 1_000 ? 0 : lastPeak,
   };
 }
 
@@ -324,6 +338,7 @@ async function record(options) {
     console.warn("Loud system playback during simultaneous speech may suppress the local microphone.");
   }
   const chunkSeconds = positiveInteger(options.chunkSeconds, DEFAULT_CHUNK_SECONDS, "--chunk-seconds");
+  const minFreeBytes = positiveInteger(options.minFreeBytes, DEFAULT_MIN_FREE_BYTES, "--min-free-bytes");
   const duration = options.duration === undefined
     ? undefined
     : positiveInteger(options.duration, undefined, "--duration");
@@ -360,6 +375,7 @@ async function record(options) {
     channels,
     chunkSeconds,
     requestedDurationSeconds: duration ?? null,
+    minimumFreeBytes: minFreeBytes,
     echoCancellation: echoSession ? {
       enabled: true,
       method: "pulseaudio-webrtc",
@@ -384,6 +400,23 @@ async function record(options) {
     stopReason = reason;
     for (const { child } of captures) if (!child.killed) child.kill("SIGINT");
   };
+  const levelsPath = path.join(sessionDirectory, "levels.json");
+  let levelWrite = Promise.resolve();
+  const writeLevels = (active) => {
+    levelWrite = levelWrite.then(async () => {
+      const storage = await statfs(sessionDirectory);
+      const storageAvailableBytes = Number(storage.bavail * storage.bsize);
+      if (active && storageAvailableBytes < minFreeBytes) stopChildren("low-storage");
+      await writeJsonAtomic(levelsPath, {
+        updatedAt: new Date().toISOString(),
+        active,
+        storageAvailableBytes,
+        tracks: captures.map((capture) => ({ name: capture.track.name, peak: active ? capture.peak() : 0 })),
+      });
+    }).catch(() => {});
+  };
+  writeLevels(true);
+  const levelTimer = setInterval(() => writeLevels(true), 250);
   const handleInterrupt = () => stopChildren("interrupt");
   const handleTermination = () => stopChildren("termination");
   process.once("SIGINT", handleInterrupt);
@@ -412,6 +445,9 @@ async function record(options) {
   }));
 
   if (timer) clearTimeout(timer);
+  clearInterval(levelTimer);
+  writeLevels(false);
+  await levelWrite;
   process.removeListener("SIGINT", handleInterrupt);
   process.removeListener("SIGTERM", handleTermination);
   for (const track of manifest.tracks) {
@@ -458,6 +494,7 @@ Record options:
   --chunk-seconds SECONDS      Recoverable WAV chunk length (default: 60)
   --sample-rate HZ             Output sample rate (default: 48000)
   --channels COUNT             Output channel count (default: 2)
+  --min-free-bytes BYTES       Stop safely below this free-space threshold
   --mic-source NAME            Override the default microphone source
   --system-source NAME         Override the detected monitor source
   --echo-cancel               Route playback through WebRTC AEC during capture
