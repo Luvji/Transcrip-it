@@ -4,7 +4,7 @@ Transcrip It is a planned Linux-first, local-first desktop meeting assistant. It
 
 ## Current status
 
-The project has completed its initial audio-capture feasibility spike and now includes a persistent local meeting library with consent-gated microphone/system recording, pause/resume/safe-stop controls, separate-track playback, and working local settings. The development backlog is maintained in [`dev.tkt`](dev.tkt), based on `Owned_AI_Meeting_Assistant_Project_Plan (1).docx`.
+The project has completed its initial audio-capture feasibility spike and now includes a persistent local meeting library with consent-gated microphone/system recording, safe controls, separate-track playback, offline English transcription, local transcript search, and open-format export. The development backlog is maintained in [`dev.tkt`](dev.tkt), based on `Owned_AI_Meeting_Assistant_Project_Plan (1).docx`.
 
 The responsive shell under [`apps/desktop`](apps/desktop) uses Tauri 2, React, TypeScript, Vite, and Tailwind CSS. Its Rust backend initializes a local SQLite database with versioned migrations for meetings, transcript segments, jobs, actions, and settings.
 
@@ -51,5 +51,7 @@ Original transcript segments are immutable. User corrections, translations, and 
 Meeting creation and library lifecycle operations are exposed through retry-safe desktop commands and documented in [`docs/architecture/meeting-management.md`](docs/architecture/meeting-management.md).
 
 The native recording lifecycle and its Linux runtime requirements are documented in [`docs/architecture/recording.md`](docs/architecture/recording.md).
+
+Offline model installation, timestamp persistence, search, and export are documented in [`docs/architecture/transcription.md`](docs/architecture/transcription.md).
 
 Enable the versioned local hook with `git config core.hooksPath .githooks`. See [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`docs/architecture/repository-layout.md`](docs/architecture/repository-layout.md) for standards and ownership boundaries.

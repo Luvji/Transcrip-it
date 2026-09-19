@@ -23,6 +23,7 @@ pub struct MeetingRecord {
     pub created_at: String,
     pub updated_at: String,
     pub tags: Vec<String>,
+    pub transcript_segment_count: i64,
 }
 
 #[derive(Debug)]
@@ -121,10 +122,12 @@ impl Database {
     ) -> Result<Vec<MeetingRecord>, MeetingError> {
         let connection = self.connection()?;
         let sql = if include_archived {
-            "SELECT id, title, lifecycle_state, source_kind, duration_ms, recording_path, created_at, updated_at
+            "SELECT id, title, lifecycle_state, source_kind, duration_ms, recording_path, created_at, updated_at,
+                (SELECT COUNT(*) FROM transcript_segments WHERE meeting_id = meetings.id)
              FROM meetings ORDER BY updated_at DESC, id"
         } else {
-            "SELECT id, title, lifecycle_state, source_kind, duration_ms, recording_path, created_at, updated_at
+            "SELECT id, title, lifecycle_state, source_kind, duration_ms, recording_path, created_at, updated_at,
+                (SELECT COUNT(*) FROM transcript_segments WHERE meeting_id = meetings.id)
              FROM meetings WHERE lifecycle_state != 'archived'
              ORDER BY updated_at DESC, id"
         };
@@ -312,6 +315,17 @@ impl Database {
             .flatten())
     }
 
+    pub fn meeting_title(&self, meeting_id: &str) -> Result<String, MeetingError> {
+        self.connection()?
+            .query_row(
+                "SELECT title FROM meetings WHERE id = ?1",
+                [meeting_id],
+                |row| row.get(0),
+            )
+            .optional()?
+            .ok_or_else(|| MeetingError::NotFound(meeting_id.to_owned()))
+    }
+
     pub fn mark_recording_started(&self, meeting_id: &str) -> Result<(), MeetingError> {
         let changed = self.connection()?.execute(
             "UPDATE meetings
@@ -427,7 +441,8 @@ fn find_by_creation_key(
 ) -> Result<Option<MeetingRecord>, MeetingError> {
     transaction
         .query_row(
-            "SELECT id, title, lifecycle_state, source_kind, duration_ms, recording_path, created_at, updated_at
+            "SELECT id, title, lifecycle_state, source_kind, duration_ms, recording_path, created_at, updated_at,
+                (SELECT COUNT(*) FROM transcript_segments WHERE meeting_id = meetings.id)
              FROM meetings WHERE creation_key = ?1",
             [creation_key],
             map_meeting_row,
@@ -442,7 +457,8 @@ fn find_meeting(
 ) -> Result<Option<MeetingRecord>, MeetingError> {
     transaction
         .query_row(
-            "SELECT id, title, lifecycle_state, source_kind, duration_ms, recording_path, created_at, updated_at
+            "SELECT id, title, lifecycle_state, source_kind, duration_ms, recording_path, created_at, updated_at,
+                (SELECT COUNT(*) FROM transcript_segments WHERE meeting_id = meetings.id)
              FROM meetings WHERE id = ?1",
             [meeting_id],
             map_meeting_row,
@@ -466,6 +482,7 @@ fn map_meeting_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<MeetingRecord> {
         created_at: row.get(6)?,
         updated_at: row.get(7)?,
         tags: Vec::new(),
+        transcript_segment_count: row.get(8)?,
     })
 }
 

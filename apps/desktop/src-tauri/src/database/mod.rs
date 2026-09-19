@@ -40,16 +40,25 @@ const MIGRATIONS: &[Migration] = &[
         name: "recording_metadata",
         sql: include_str!("migrations/0005_recording_metadata.sql"),
     },
+    Migration {
+        version: 6,
+        name: "transcript_search",
+        sql: include_str!("migrations/0006_transcript_search.sql"),
+    },
 ];
 
 mod evidence;
 mod meetings;
+mod transcripts;
 mod workflow;
 pub use evidence::{
     AuthorKind, DerivativeKind, EvidenceError, SegmentDerivative, SegmentDerivativeInput,
     SegmentText,
 };
 pub use meetings::{CreateMeetingInput, MeetingError, MeetingRecord};
+pub use transcripts::{
+    TranscriptError, TranscriptSearchResult, TranscriptSegmentInput, TranscriptSegmentRecord,
+};
 pub use workflow::{
     JobClaim, JobCompletion, JobSchedule, JobSnapshot, MeetingState, MeetingTransition,
     MeetingTransitionRequest, WorkflowError,
@@ -221,7 +230,7 @@ mod tests {
             assert!(exists, "expected table {table}");
         }
 
-        assert_eq!(current_schema_version(&connection).unwrap(), 5);
+        assert_eq!(current_schema_version(&connection).unwrap(), 6);
     }
 
     #[test]
@@ -237,7 +246,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(migration_count, 5);
+        assert_eq!(migration_count, 6);
     }
 
     #[test]
@@ -284,7 +293,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(upgraded, ("job-1".to_owned(), "queued".to_owned(), None));
-        assert_eq!(current_schema_version(&connection).unwrap(), 5);
+        assert_eq!(current_schema_version(&connection).unwrap(), 6);
     }
 
     #[test]

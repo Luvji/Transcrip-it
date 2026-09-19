@@ -1,10 +1,12 @@
 pub mod database;
 pub mod engines;
 mod recording;
+mod transcription;
 
 use database::{CreateMeetingInput, Database, DatabaseStatus, MeetingRecord};
 use recording::Recorder;
 use tauri::Manager;
+use transcription::Transcriber;
 
 #[tauri::command]
 fn database_status(database: tauri::State<'_, Database>) -> Result<DatabaseStatus, String> {
@@ -111,6 +113,7 @@ pub fn run() {
             let database_path = app.path().app_data_dir()?.join("transcrip-it.sqlite3");
             app.manage(Database::open(&database_path)?);
             app.manage(Recorder::new());
+            app.manage(Transcriber::new());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -128,7 +131,13 @@ pub fn run() {
             recording::pause_recording,
             recording::resume_recording,
             recording::stop_recording,
-            recording::play_recording_track
+            recording::play_recording_track,
+            transcription::transcription_model_status,
+            transcription::install_transcription_model,
+            transcription::list_transcript,
+            transcription::search_transcripts,
+            transcription::export_transcript,
+            transcription::transcribe_meeting
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

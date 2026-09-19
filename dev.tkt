@@ -111,8 +111,9 @@ TRANSCRIP-IT - DEVELOPMENT TRACKER
     $- [ENH] [TI-0038] Prevent storage exhaustion during recording
       [DESC] Estimate required space, warn at live thresholds, and stop gracefully when necessary.
       [DESC] Require 512 MB free to start, report live capacity, and finalize safely at the 128 MB reserve.
-    @- [FT] [TI-0039] Play back separate captured tracks
+    #- [FT] [TI-0039] Play back separate captured tracks
       [DESC] The first iteration must capture and safely stop a ten-minute meeting, then play both tracks.
+      [DESC] Native testing captured and decoded 31.56 seconds of processed mic, raw mic, and system audio without manifest errors; the required ten-minute endurance run remains.
     *- [ENH] [TI-0040] Pass twenty controlled recording scenarios without lost audio
       [DESC] Cover long sessions, silence, disconnects, interruption, low disk space, cross-talk, and poor microphones.
     *- [ENH] [TI-0102] Improve echo cancellation during loud double-talk
@@ -131,8 +132,9 @@ TRANSCRIP-IT - DEVELOPMENT TRACKER
   [DESC] Produce time-aligned English transcripts locally, with optional experimental language support.
 
     *- [FT] [TI-0046] Queue, monitor, cancel, retry, and resume processing jobs
-    *- [FT] [TI-0047] Transcribe supported English speech with timestamps
+    $- [FT] [TI-0047] Transcribe supported English speech with timestamps
       [DESC] Use a local Faster-Whisper adapter and make key statements understandable and time-aligned.
+      [DESC] The replaceable MVP adapter uses pinned whisper.cpp base.en, persists immutable millisecond-aligned segments, and ran the native 31-second sample locally.
     *- [FT] [TI-0048] Offer an optional experimental multilingual pack
       [DESC] Preserve Malayalam, Hindi, Japanese, and mixed speech rather than forcing a meeting into English.
     *- [FT] [TI-0049] Show processing progress and recoverable errors
@@ -145,8 +147,9 @@ TRANSCRIP-IT - DEVELOPMENT TRACKER
 *- [EPIC] [TI-0053] Evidence-preserving transcript review
   [DESC] Let users inspect and correct transcripts without overwriting the original evidence record.
 
-    *- [FT] [TI-0054] View transcript timestamps and navigate to matching audio
-    *- [FT] [TI-0055] Edit transcript text while preserving original segments
+    $- [FT] [TI-0054] View transcript timestamps and navigate to matching audio
+      [DESC] Display immutable source segments and start microphone playback at the selected timestamp.
+    @- [FT] [TI-0055] Edit transcript text while preserving original segments
     *- [FT] [TI-0056] Regenerate only outputs affected by transcript corrections
     *- [ENH] [TI-0057] Mark low-confidence transcript segments visibly
       [DESC] Allow uncertain segments to be replayed, corrected, or reprocessed.
@@ -176,7 +179,8 @@ TRANSCRIP-IT - DEVELOPMENT TRACKER
 *- [EPIC] [TI-0068] Search and approved export
   [DESC] Make reviewed meeting knowledge easy to find and portable in open text formats.
 
-    *- [FT] [TI-0069] Search transcript text with SQLite full-text search
+    $- [FT] [TI-0069] Search transcript text with SQLite full-text search
+      [DESC] Index source segments with local SQLite FTS5 and surface matching meeting, timestamp, and context snippets.
     *- [FT] [TI-0070] Filter meetings by date, participant label, tag, and status
     *- [FT] [TI-0071] Export approved transcripts and notes to Markdown and plain text
     *- [ENH] [TI-0072] Retrieve relevant evidence for later meeting questions

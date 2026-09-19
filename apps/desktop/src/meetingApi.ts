@@ -19,6 +19,7 @@ export interface Meeting {
   createdAt: string;
   updatedAt: string;
   tags: string[];
+  transcriptSegmentCount: number;
 }
 
 interface CreateMeetingInput {
@@ -69,6 +70,7 @@ export const meetingApi = {
       createdAt: timestamp,
       updatedAt: timestamp,
       tags: [],
+      transcriptSegmentCount: 0,
     };
     saveBrowserMeetings([meeting, ...browserMeetings()]);
     return meeting;
@@ -165,8 +167,60 @@ export const recordingApi = {
     if (!isTauri()) throw new Error("Audio capture is available in the Transcrip-it desktop app.");
     return invoke("resume_recording", { meetingId });
   },
-  async play(meetingId: string, track: "mic" | "system"): Promise<void> {
+  async play(meetingId: string, track: "mic" | "system", startMs = 0): Promise<void> {
     if (!isTauri()) throw new Error("Audio playback is available in the Transcrip-it desktop app.");
-    await invoke("play_recording_track", { meetingId, track });
+    await invoke("play_recording_track", { meetingId, track, startMs });
+  },
+};
+
+export interface TranscriptSegment {
+  id: string;
+  sequenceNumber: number;
+  startMs: number;
+  endMs: number;
+  speakerLabel: string | null;
+  sourceText: string;
+}
+
+export interface TranscriptionModelStatus {
+  installed: boolean;
+  pack: string;
+  modelBytes: number | null;
+  engineVersion: string;
+}
+
+export interface TranscriptSearchResult {
+  meetingId: string;
+  meetingTitle: string;
+  segmentId: string;
+  startMs: number;
+  snippet: string;
+}
+
+export const transcriptionApi = {
+  available: isTauri(),
+  async modelStatus(): Promise<TranscriptionModelStatus> {
+    if (!isTauri()) return { installed: false, pack: "Balanced English", modelBytes: null, engineVersion: "Desktop app required" };
+    return invoke("transcription_model_status");
+  },
+  async installModel(): Promise<TranscriptionModelStatus> {
+    if (!isTauri()) throw new Error("Model installation is available in the Transcrip-it desktop app.");
+    return invoke("install_transcription_model");
+  },
+  async transcribe(meetingId: string): Promise<TranscriptSegment[]> {
+    if (!isTauri()) throw new Error("Local transcription is available in the Transcrip-it desktop app.");
+    return invoke("transcribe_meeting", { meetingId });
+  },
+  async list(meetingId: string): Promise<TranscriptSegment[]> {
+    if (!isTauri()) return [];
+    return invoke("list_transcript", { meetingId });
+  },
+  async search(query: string): Promise<TranscriptSearchResult[]> {
+    if (!isTauri() || query.trim().length < 2) return [];
+    return invoke("search_transcripts", { query });
+  },
+  async export(meetingId: string, format: "markdown" | "text"): Promise<string> {
+    if (!isTauri()) throw new Error("Transcript export is available in the Transcrip-it desktop app.");
+    return invoke("export_transcript", { meetingId, format });
   },
 };
