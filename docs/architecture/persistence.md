@@ -18,8 +18,11 @@ Meeting and processing transitions follow the transactional contract in [`workfl
 
 - `meetings` owns the lifecycle-level record and source metadata.
 - `transcript_segments` stores ordered, time-aligned source evidence for a meeting.
+- `transcript_derivatives` stores revisioned corrections, translations, and romanizations without overwriting source evidence.
 - `jobs` stores recoverable processing work, progress, attempts, checkpoints, and errors.
 - `actions` stores meeting action items and optional links to their source segment.
 - `settings` stores typed configuration as validated JSON values.
 
 Meeting-owned segments, jobs, and actions cascade on meeting deletion. Deleting an individual transcript segment retains its action item but clears the evidence link. Durations and transcript offsets are integer milliseconds; timestamps are UTC ISO-8601 strings.
+
+The immutability and revision rules are documented in [`evidence-model.md`](evidence-model.md).

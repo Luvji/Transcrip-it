@@ -70,8 +70,10 @@ TRANSCRIP-IT - DEVELOPMENT TRACKER
       [DESC] Guard meeting transitions with expected-state revisions and audit them using replay-safe idempotency keys.
       [DESC] Claim processing jobs with expiring lease tokens so stale workers cannot overwrite newer attempts.
       [DESC] Verified schema migration 2 against the live database, nine Rust state-machine tests, database integrity, and warning-free Clippy output.
-    *- [ENH] [TI-0025] Separate original evidence from user and model-derived changes
+    $- [ENH] [TI-0025] Separate original evidence from user and model-derived changes
       [DESC] Preserve source segments independently from corrections, translations, and generated interpretations.
+      [DESC] Enforce immutable source text and append idempotent, provenance-tagged correction, translation, and romanization revisions.
+      [DESC] Verified migration 3 against the live database, source-update rejection, revision selection, idempotent writes, and database integrity.
     *- [ENH] [TI-0026] Define replaceable engine interfaces
       [DESC] Allow engines to change without rewriting stored meeting data.
     *- [FT] [TI-0027] Support independently downloadable model packs

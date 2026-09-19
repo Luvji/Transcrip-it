@@ -46,4 +46,6 @@ For browser-only interface work, use `npm run desktop:web`.
 
 SQLite data is stored in the operating system's application-data directory and is never written inside the repository. See [`docs/architecture/persistence.md`](docs/architecture/persistence.md) for the schema and migration contract and [`docs/architecture/workflow-state.md`](docs/architecture/workflow-state.md) for retry-safe lifecycle rules.
 
+Original transcript segments are immutable. User corrections, translations, and model-derived alternatives are revisioned separately according to [`docs/architecture/evidence-model.md`](docs/architecture/evidence-model.md).
+
 Enable the versioned local hook with `git config core.hooksPath .githooks`. See [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`docs/architecture/repository-layout.md`](docs/architecture/repository-layout.md) for standards and ownership boundaries.
