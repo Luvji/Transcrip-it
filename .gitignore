@@ -3,6 +3,7 @@
 *.tkt.notification
 *.tickets.notification
 recordings/
+*.sqlite*
 node_modules/
 dist/
 coverage/

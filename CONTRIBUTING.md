@@ -5,6 +5,7 @@
 - Use Node.js 22 as declared in `.nvmrc`.
 - Install dependencies with `npm ci` when a lockfile is present.
 - Run `npm run check` before committing.
+- Run `npm run check:rust` for Rust formatting and backend tests.
 - Keep work associated with the active ticket in `dev.tkt`.
 - Do not commit recordings, meeting content, generated notification records, secrets, model files, or local databases.
 

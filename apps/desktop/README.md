@@ -30,3 +30,7 @@ npm run desktop:dev
 ```
 
 For browser-only UI work, use `npm run desktop:web`. Run the complete JavaScript and frontend validation suite with `npm run check`.
+
+## Local database
+
+The Tauri backend creates `transcrip-it.sqlite3` in the platform application-data directory on startup. Schema changes are applied transactionally from the ordered migrations under `src-tauri/src/database/migrations/`. Run `npm run check:rust` from the repository root to format-check the backend and execute its migration tests.

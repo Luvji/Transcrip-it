@@ -61,8 +61,10 @@ TRANSCRIP-IT - DEVELOPMENT TRACKER
       [DESC] Follow-up testing confirmed the main WebKitGTK, GTK, GLib, AppIndicator, SVG, Xdo, and OpenSSL development packages were not installed.
       [DESC] APT then exposed a disabled jammy-updates repository, leaving installed Pango runtime packages newer than the visible development packages.
       [DESC] Native Ubuntu launch, locked Rust compilation, frontend tests, and the production web build passed after restoring the standard development packages.
-    *- [FT] [TI-0023] Add SQLite persistence and database migrations
+    $- [FT] [TI-0023] Add SQLite persistence and database migrations
       [DESC] Store meetings, transcript segments, jobs, actions, and settings.
+      [DESC] Initialize bundled SQLite in the per-user application-data directory and apply ordered migrations transactionally.
+      [DESC] Verified the live application database, migration idempotence, referential cleanup, integrity, Rust formatting, and warning-free Clippy output.
     *- [FT] [TI-0024] Implement the meeting lifecycle and job state machine
       [DESC] Persist lifecycle changes and make each processing step idempotent and safe to retry.
     *- [ENH] [TI-0025] Separate original evidence from user and model-derived changes
