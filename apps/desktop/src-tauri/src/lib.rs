@@ -1,4 +1,4 @@
-mod database;
+pub mod database;
 
 use database::{Database, DatabaseStatus};
 use tauri::Manager;

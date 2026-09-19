@@ -65,8 +65,11 @@ TRANSCRIP-IT - DEVELOPMENT TRACKER
       [DESC] Store meetings, transcript segments, jobs, actions, and settings.
       [DESC] Initialize bundled SQLite in the per-user application-data directory and apply ordered migrations transactionally.
       [DESC] Verified the live application database, migration idempotence, referential cleanup, integrity, Rust formatting, and warning-free Clippy output.
-    *- [FT] [TI-0024] Implement the meeting lifecycle and job state machine
+    $- [FT] [TI-0024] Implement the meeting lifecycle and job state machine
       [DESC] Persist lifecycle changes and make each processing step idempotent and safe to retry.
+      [DESC] Guard meeting transitions with expected-state revisions and audit them using replay-safe idempotency keys.
+      [DESC] Claim processing jobs with expiring lease tokens so stale workers cannot overwrite newer attempts.
+      [DESC] Verified schema migration 2 against the live database, nine Rust state-machine tests, database integrity, and warning-free Clippy output.
     *- [ENH] [TI-0025] Separate original evidence from user and model-derived changes
       [DESC] Preserve source segments independently from corrections, translations, and generated interpretations.
     *- [ENH] [TI-0026] Define replaceable engine interfaces

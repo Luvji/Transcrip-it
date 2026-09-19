@@ -34,3 +34,5 @@ For browser-only UI work, use `npm run desktop:web`. Run the complete JavaScript
 ## Local database
 
 The Tauri backend creates `transcrip-it.sqlite3` in the platform application-data directory on startup. Schema changes are applied transactionally from the ordered migrations under `src-tauri/src/database/migrations/`. Run `npm run check:rust` from the repository root to format-check the backend and execute its migration tests.
+
+Meeting and job state changes are implemented in `src-tauri/src/database/workflow.rs`. Callers must supply stable idempotency keys, and workers must use the lease token returned by their current job claim.

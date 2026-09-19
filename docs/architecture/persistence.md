@@ -12,6 +12,8 @@ Migrations are ordered SQL files under `apps/desktop/src-tauri/src/database/migr
 
 Once a migration has shipped, do not edit it. Add the next numbered migration and append it to `MIGRATIONS` in `database/mod.rs`. A migration must preserve user data or document an explicit recovery strategy.
 
+Meeting and processing transitions follow the transactional contract in [`workflow-state.md`](workflow-state.md).
+
 ## Initial schema
 
 - `meetings` owns the lifecycle-level record and source metadata.

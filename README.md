@@ -44,6 +44,6 @@ npm run desktop:dev
 
 For browser-only interface work, use `npm run desktop:web`.
 
-SQLite data is stored in the operating system's application-data directory and is never written inside the repository. See [`docs/architecture/persistence.md`](docs/architecture/persistence.md) for the schema and migration contract.
+SQLite data is stored in the operating system's application-data directory and is never written inside the repository. See [`docs/architecture/persistence.md`](docs/architecture/persistence.md) for the schema and migration contract and [`docs/architecture/workflow-state.md`](docs/architecture/workflow-state.md) for retry-safe lifecycle rules.
 
 Enable the versioned local hook with `git config core.hooksPath .githooks`. See [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`docs/architecture/repository-layout.md`](docs/architecture/repository-layout.md) for standards and ownership boundaries.

@@ -14,11 +14,24 @@ struct Migration {
     sql: &'static str,
 }
 
-const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    name: "initial",
-    sql: include_str!("migrations/0001_initial.sql"),
-}];
+const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        name: "initial",
+        sql: include_str!("migrations/0001_initial.sql"),
+    },
+    Migration {
+        version: 2,
+        name: "workflow_state",
+        sql: include_str!("migrations/0002_workflow_state.sql"),
+    },
+];
+
+mod workflow;
+pub use workflow::{
+    JobClaim, JobCompletion, JobSchedule, JobSnapshot, MeetingState, MeetingTransition,
+    MeetingTransitionRequest, WorkflowError,
+};
 
 #[derive(Debug)]
 pub enum DatabaseError {
@@ -186,7 +199,7 @@ mod tests {
             assert!(exists, "expected table {table}");
         }
 
-        assert_eq!(current_schema_version(&connection).unwrap(), 1);
+        assert_eq!(current_schema_version(&connection).unwrap(), 2);
     }
 
     #[test]
@@ -202,7 +215,54 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(migration_count, 1);
+        assert_eq!(migration_count, 2);
+    }
+
+    #[test]
+    fn upgrades_an_interrupted_version_one_job_safely() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        configure_connection(&connection).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE schema_migrations (
+                    version INTEGER PRIMARY KEY CHECK (version > 0),
+                    name TEXT NOT NULL UNIQUE,
+                    applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                );",
+            )
+            .unwrap();
+        connection.execute_batch(MIGRATIONS[0].sql).unwrap();
+        connection
+            .execute(
+                "INSERT INTO schema_migrations (version, name) VALUES (1, 'initial')",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO meetings (id, title) VALUES ('meeting-1', 'Interrupted meeting')",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO jobs (id, meeting_id, job_kind, state)
+                 VALUES ('job-1', 'meeting-1', 'transcription', 'running')",
+                [],
+            )
+            .unwrap();
+
+        apply_migrations(&mut connection).unwrap();
+
+        let upgraded: (String, String, Option<String>) = connection
+            .query_row(
+                "SELECT idempotency_key, state, run_token FROM jobs WHERE id = 'job-1'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(upgraded, ("job-1".to_owned(), "queued".to_owned(), None));
+        assert_eq!(current_schema_version(&connection).unwrap(), 2);
     }
 
     #[test]
@@ -226,8 +286,8 @@ mod tests {
             .unwrap();
         connection
             .execute(
-                "INSERT INTO jobs (id, meeting_id, job_kind)
-                 VALUES ('job-1', 'meeting-1', 'transcription')",
+                "INSERT INTO jobs (id, idempotency_key, meeting_id, job_kind)
+                 VALUES ('job-1', 'job-1', 'meeting-1', 'transcription')",
                 [],
             )
             .unwrap();
