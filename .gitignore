@@ -1,0 +1,17 @@
+.tickets/notifications/
+.tickets/evidence/
+*.tkt.notification
+*.tickets.notification
+recordings/
+node_modules/
+dist/
+coverage/
+target/
+.venv/
+__pycache__/
+*.py[cod]
+*.log
+.env
+.env.*
+!.env.example
+.DS_Store

@@ -1,0 +1,16 @@
+{
+  "name": "transcrip-it",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-first meeting assistant feasibility work",
+  "type": "module",
+  "scripts": {
+    "check": "node scripts/check.mjs && node --test",
+    "audio:devices": "node spikes/audio-capture/audio.mjs devices",
+    "audio:record": "node spikes/audio-capture/audio.mjs record",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

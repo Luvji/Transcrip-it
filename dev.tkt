@@ -1,0 +1,219 @@
+[HELP] Hover here for ticket rules and conventions.
+[NOTIFICATION] No active ticket notifications.
+[INFO] Hover here for the current ticket summary.
+[PREFIX: TI]
+================================================================================
+TRANSCRIP-IT - DEVELOPMENT TRACKER
+================================================================================
+
+~- [EPIC] [TI-0001] Product discovery, scope, and delivery governance
+  [DESC] Establish the approved Linux-first, local-first release baseline and maintain measurable phase gates.
+
+    #- [ENH] [TI-0002] Convert the product plan into a structured development backlog
+      [DESC] Organize the September 2026 plan into uniquely numbered epics and actionable tickets for review.
+    ~- [ENH] [TI-0003] Approve the minimum viable product scope
+      [DESC] Confirm the post-meeting Ubuntu workflow, supported English experience, and first-release boundaries.
+    ~- [ENH] [TI-0004] Accept the deferred capability list
+      [DESC] Confirm that live transcription, additional desktop platforms, bots, mobile capture, cloud collaboration, and calendar joining are deferred.
+    ~- [ENH] [TI-0005] Select the working product name and repository location
+    ~- [ENH] [TI-0006] Confirm the target Ubuntu audio environment
+      [DESC] Record the Ubuntu version, audio server, microphone, headset, and meeting applications used for feasibility work.
+    ~- [ENH] [TI-0007] Assemble a consented evaluation audio corpus
+      [DESC] Collect 30 to 60 minutes covering actual accents, languages, speakers, noise, echo, interruptions, and microphone conditions.
+    *- [ENH] [TI-0008] Record architecture and privacy decisions
+    *- [ENH] [TI-0009] Operate one-week delivery iterations
+      [DESC] Keep a prioritized backlog with acceptance criteria and demonstrate a usable vertical slice each week.
+    *- [ENH] [TI-0010] Review scope, risk, benchmarks, and confidence at each phase gate
+
+*- [EPIC] [TI-0011] Phase 0 audio, model, and privacy feasibility
+  [DESC] Validate the platform-sensitive assumptions before investing in the production application.
+
+    $- [FT] [TI-0012] Build an Ubuntu audio-capture feasibility spike
+      [DESC] Provide consent-gated microphone and system-audio capture as exact, recoverable PCM WAV chunks with an atomic session manifest.
+      [DESC] Testing found system playback in the microphone track; source routing or acoustic bleed must be diagnosed before approval.
+      [DESC] Experimental offline adaptive filtering degraded voice clarity and must not be used as the production echo-cancellation path.
+      [DESC] The replacement WebRTC mode preserves raw microphone audio, produces an echo-cancelled microphone track, and restores temporary playback routing after capture.
+      [DESC] Accepted for the MVP with a headset recommendation and a warning that loud simultaneous system playback can suppress local speech.
+    *- [ENH] [TI-0013] Verify separate and mixed audio tracks
+      [DESC] Exercise microphone-only, system-audio-only, and combined capture paths.
+      [DESC] Measure source readiness, establish a common session start, and verify track alignment after device wake-up.
+    *- [ENH] [TI-0014] Benchmark two English transcription model sizes
+      [DESC] Measure accuracy and speed across Indian accents, background noise, and domain terminology.
+    *- [ENH] [TI-0015] Benchmark experimental multilingual transcription
+      [DESC] Evaluate Malayalam, Hindi, Japanese, Manglish, Hinglish, and Japanese-English code-switching without making these results a release gate.
+    *- [ENH] [TI-0016] Evaluate speaker-separation options
+      [DESC] Compare licensing, downloads, runtime, hardware requirements, and labeling accuracy.
+    ~- [ENH] [TI-0017] Select transcription, speaker, and summary strategies
+      [DESC] Base model choices and realistic processing targets on measured Phase 0 results.
+    *- [ENH] [TI-0018] Publish the feasibility report and benchmark results
+    ~- [ENH] [TI-0019] Confirm measurable first-release acceptance criteria
+      [DESC] Cover recording reliability, processing completion, transcript usability, summary grounding, privacy, and interruption recovery.
+
+*- [EPIC] [TI-0020] Application foundation and recoverable job architecture
+  [DESC] Establish the desktop shell, persistence, automated checks, and retry-safe processing foundation.
+
+    $- [FT] [TI-0021] Create the repository structure and coding standards
+      [DESC] Configure automated checks that run on every change.
+      [DESC] Establish the repository layout, contribution rules, lockfile, continuous integration, and versioned pre-commit validation.
+    *- [FT] [TI-0022] Build the Tauri, React, TypeScript, and Tailwind desktop shell
+    *- [FT] [TI-0023] Add SQLite persistence and database migrations
+      [DESC] Store meetings, transcript segments, jobs, actions, and settings.
+    *- [FT] [TI-0024] Implement the meeting lifecycle and job state machine
+      [DESC] Persist lifecycle changes and make each processing step idempotent and safe to retry.
+    *- [ENH] [TI-0025] Separate original evidence from user and model-derived changes
+      [DESC] Preserve source segments independently from corrections, translations, and generated interpretations.
+    *- [ENH] [TI-0026] Define replaceable engine interfaces
+      [DESC] Allow engines to change without rewriting stored meeting data.
+    *- [FT] [TI-0027] Support independently downloadable model packs
+      [DESC] Keep the core installer small and offer Lite, Balanced, and Accuracy configurations.
+
+*- [EPIC] [TI-0028] Meeting library and lifecycle management
+  [DESC] Provide a clear local workspace for managing meetings throughout their lifecycle.
+
+    *- [FT] [TI-0029] Create, rename, tag, archive, delete, and reopen meetings
+    *- [FT] [TI-0030] Build the local meeting library
+    *- [FT] [TI-0031] Require consent confirmation before recording
+      [DESC] Show an unambiguous recording state and remind users of consent and policy responsibilities.
+    *- [ENH] [TI-0032] Recover an interrupted meeting lifecycle on restart
+      [DESC] Reopen unfinished recordings from the last safe checkpoint without corrupting completed work.
+
+*- [EPIC] [TI-0033] Reliable microphone and system-audio capture
+  [DESC] Capture meeting audio in recoverable chunks without silently losing data.
+
+    *- [FT] [TI-0034] Select microphone and system-audio sources and capture modes
+    *- [FT] [TI-0035] Implement start, pause, resume, and safe-stop controls
+    *- [FT] [TI-0036] Display live audio levels and handle device changes
+    *- [FT] [TI-0037] Write recoverable audio chunks and manifests
+      [DESC] Flush progress periodically so forced termination preserves completed chunks.
+    *- [ENH] [TI-0038] Prevent storage exhaustion during recording
+      [DESC] Estimate required space, warn at live thresholds, and stop gracefully when necessary.
+    *- [FT] [TI-0039] Play back separate captured tracks
+      [DESC] The first iteration must capture and safely stop a ten-minute meeting, then play both tracks.
+    *- [ENH] [TI-0040] Pass twenty controlled recording scenarios without lost audio
+      [DESC] Cover long sessions, silence, disconnects, interruption, low disk space, cross-talk, and poor microphones.
+    *- [ENH] [TI-0102] Improve echo cancellation during loud double-talk
+      [DESC] Preserve local speech when the user and remote participant speak simultaneously or system playback is loud; address after the working MVP.
+
+*- [EPIC] [TI-0041] Media import and preparation pipeline
+  [DESC] Safely convert recordings and imported media into consistent, traceable processing inputs.
+
+    *- [FT] [TI-0042] Import common audio and video files
+    *- [FT] [TI-0043] Normalize, chunk, and detect speech in media
+      [DESC] Use FFmpeg and retain metadata needed to trace outputs to the source timeline.
+    *- [ENH] [TI-0044] Reject or safely handle malformed and malicious media
+      [DESC] Surface actionable errors without compromising application data or the host system.
+
+*- [EPIC] [TI-0045] Local transcription and speaker processing
+  [DESC] Produce time-aligned English transcripts locally, with optional experimental language support.
+
+    *- [FT] [TI-0046] Queue, monitor, cancel, retry, and resume processing jobs
+    *- [FT] [TI-0047] Transcribe supported English speech with timestamps
+      [DESC] Use a local Faster-Whisper adapter and make key statements understandable and time-aligned.
+    *- [FT] [TI-0048] Offer an optional experimental multilingual pack
+      [DESC] Preserve Malayalam, Hindi, Japanese, and mixed speech rather than forcing a meeting into English.
+    *- [FT] [TI-0049] Show processing progress and recoverable errors
+    *- [ENH] [TI-0050] Measure processing resource use on the target device
+      [DESC] Track time, processor and memory use, temperature, and transcript usability.
+    *- [FT] [TI-0051] Generate basic anonymous speaker labels
+      [DESC] Do not infer identity silently; expose uncertainty when separation is unreliable.
+    *- [FT] [TI-0052] Rename and merge speaker labels manually
+
+*- [EPIC] [TI-0053] Evidence-preserving transcript review
+  [DESC] Let users inspect and correct transcripts without overwriting the original evidence record.
+
+    *- [FT] [TI-0054] View transcript timestamps and navigate to matching audio
+    *- [FT] [TI-0055] Edit transcript text while preserving original segments
+    *- [FT] [TI-0056] Regenerate only outputs affected by transcript corrections
+    *- [ENH] [TI-0057] Mark low-confidence transcript segments visibly
+      [DESC] Allow uncertain segments to be replayed, corrected, or reprocessed.
+    *- [FT] [TI-0058] Choose native-script, romanized, or combined display
+      [DESC] Display options must never overwrite the original transcript.
+
+*- [EPIC] [TI-0059] Grounded summaries, decisions, and action tracking
+  [DESC] Generate editable structured notes locally and make conclusions traceable to transcript evidence.
+
+    *- [FT] [TI-0060] Define and validate the structured summary schema
+      [DESC] Cover overview, topics, decisions, actions, questions, risks, and next steps.
+    *- [FT] [TI-0061] Link generated decisions and actions to transcript evidence
+      [DESC] Every generated fact must carry valid segment identifiers and timestamps or be visibly uncertain.
+    *- [ENH] [TI-0062] Preserve unknown owners and dates as not specified
+      [DESC] Reject unsupported claims instead of inventing details.
+    *- [FT] [TI-0063] Run local structured generation through a replaceable model adapter
+      [DESC] Start with Ollama and a quantized 3B to 4B model using constrained schemas and glossary support.
+    *- [FT] [TI-0064] Edit, approve, and regenerate generated notes
+      [DESC] Treat summaries as reviewable drafts rather than legally authoritative records.
+    *- [FT] [TI-0065] Add meeting-specific summary templates
+      [DESC] Include general discussion, daily stand-up, sprint review, and interview templates.
+    *- [ENH] [TI-0066] Chunk long transcripts and synthesize grounded results
+      [DESC] Analyze short or topic-based segments and retain structured facts with source timestamps.
+    *- [FT] [TI-0067] Generate optional multilingual summaries and separate translations
+      [DESC] Support selected summary languages while keeping interpretations separate from original evidence.
+
+*- [EPIC] [TI-0068] Search and approved export
+  [DESC] Make reviewed meeting knowledge easy to find and portable in open text formats.
+
+    *- [FT] [TI-0069] Search transcript text with SQLite full-text search
+    *- [FT] [TI-0070] Filter meetings by date, participant label, tag, and status
+    *- [FT] [TI-0071] Export approved transcripts and notes to Markdown and plain text
+    *- [ENH] [TI-0072] Retrieve relevant evidence for later meeting questions
+      [DESC] Use matching segments instead of resending a complete transcript to the local model.
+
+*- [EPIC] [TI-0073] Settings, diagnostics, and model operations
+  [DESC] Expose understandable controls for local processing, storage, and troubleshooting.
+
+    *- [FT] [TI-0074] Configure models, language, storage, retention, and privacy mode
+    *- [FT] [TI-0075] Show diagnostics, storage usage, model status, and job errors
+      [DESC] Diagnostic output must exclude transcript content and sensitive meeting data.
+    *- [FT] [TI-0076] Guide first-run model installation and setup
+    *- [ENH] [TI-0077] Verify downloaded model integrity
+    *- [FT] [TI-0078] Back up and restore local meeting data
+
+*- [EPIC] [TI-0079] Privacy, security, retention, and responsible use
+  [DESC] Keep meeting content under owner control and document every data flow and optional connection.
+
+    *- [FT] [TI-0080] Make fully local processing the default
+      [DESC] Meeting content must not leave the device unless a future service is explicitly enabled.
+    *- [ENH] [TI-0081] Encrypt sensitive stored content where practical
+      [DESC] Protect encryption keys with the operating-system credential store.
+    *- [ENH] [TI-0082] Exclude meeting content from logs and crash reports
+    *- [FT] [TI-0083] Enforce retention limits and permanent deletion
+      [DESC] Explain and verify removal of metadata, transcripts, and stored media.
+    *- [ENH] [TI-0084] Review model and dependency licenses
+      [DESC] Resolve distribution and commercial-use constraints before packaging.
+    *- [ENH] [TI-0085] Verify local-only network behavior
+      [DESC] Audit configuration and outbound traffic to prove meeting content remains on-device by default.
+
+*- [EPIC] [TI-0086] Quality, packaging, and pilot release
+  [DESC] Validate recovery, accuracy, privacy, usability, performance, and installation before release approval.
+
+    *- [ENH] [TI-0087] Build representative English and experimental evaluation fixtures
+      [DESC] Keep multilingual failures visible and measured without blocking the supported English release.
+    *- [ENH] [TI-0088] Automate unit, component, integration, and system checks
+      [DESC] Cover job states, schemas, evidence, retention, exports, capture, adapters, database, and correction flows.
+    *- [ENH] [TI-0089] Evaluate transcript and summary quality
+      [DESC] Measure transcript errors, missed decisions, invented actions, wrong owners, and invalid evidence.
+    *- [ENH] [TI-0090] Exercise endurance and interruption recovery
+      [DESC] Cover two-hour meetings, forced termination, restart, low resources, disconnects, silence, cross-talk, and corrupt files.
+    *- [ENH] [TI-0091] Verify keyboard usability and core workflow clarity
+      [DESC] Measure recording-state, consent, correction, and export comprehension.
+    *- [FT] [TI-0092] Package an installable Ubuntu release candidate
+      [DESC] Include setup, diagnostics, backup, restore, uninstall, and clean-environment instructions.
+    *- [ENH] [TI-0093] Pilot the release candidate in ten consented meetings
+      [DESC] Classify every defect and summary correction, then resolve or accept the findings.
+    *- [ENH] [TI-0094] Enforce final release quality gates
+      [DESC] Allow no open critical or high-severity recording, privacy, or deletion defect.
+
+*- [EPIC] [TI-0095] Deferred platform and collaboration capabilities
+  [DESC] Revisit these capabilities only after the local single-user post-processing workflow is proven.
+
+    *- [FT] [TI-0096] Add live transcription after post-processing stabilizes
+    *- [FT] [TI-0097] Add Windows and macOS platform support
+      [DESC] Begin after the Linux workflow and audio interfaces stabilize.
+    *- [FT] [TI-0098] Add platform meeting bots
+      [DESC] Revisit after demand and platform permission constraints are validated.
+    *- [FT] [TI-0099] Add mobile capture
+      [DESC] Revisit after the desktop product is established and audio restrictions are understood.
+    *- [FT] [TI-0100] Add cloud synchronization and team workspaces
+      [DESC] Revisit only after single-user identity, security, and compliance are complete.
+    *- [FT] [TI-0101] Add automatic calendar joining
+      [DESC] Revisit when a calendar integration is explicitly prioritized.
