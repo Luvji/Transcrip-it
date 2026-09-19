@@ -55,7 +55,12 @@ TRANSCRIP-IT - DEVELOPMENT TRACKER
     $- [FT] [TI-0021] Create the repository structure and coding standards
       [DESC] Configure automated checks that run on every change.
       [DESC] Establish the repository layout, contribution rules, lockfile, continuous integration, and versioned pre-commit validation.
-    *- [FT] [TI-0022] Build the Tauri, React, TypeScript, and Tailwind desktop shell
+    $- [FT] [TI-0022] Build the Tauri, React, TypeScript, and Tailwind desktop shell
+      [DESC] Provide a responsive local-first workspace shell, headset guidance, automated UI tests, and native Tauri continuous-integration checks.
+      [DESC] Native Ubuntu testing found missing pkg-config and D-Bus development packages; retry after installing pkg-config and libdbus-1-dev.
+      [DESC] Follow-up testing confirmed the main WebKitGTK, GTK, GLib, AppIndicator, SVG, Xdo, and OpenSSL development packages were not installed.
+      [DESC] APT then exposed a disabled jammy-updates repository, leaving installed Pango runtime packages newer than the visible development packages.
+      [DESC] Native Ubuntu launch, locked Rust compilation, frontend tests, and the production web build passed after restoring the standard development packages.
     *- [FT] [TI-0023] Add SQLite persistence and database migrations
       [DESC] Store meetings, transcript segments, jobs, actions, and settings.
     *- [FT] [TI-0024] Implement the meeting lifecycle and job state machine

@@ -10,12 +10,22 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-22.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
           cache: npm
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential curl wget file pkg-config libdbus-1-dev libglib2.0-dev libgtk-3-dev libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+      - name: Configure Rust
+        run: rustup component add rustfmt
       - run: npm ci
       - run: npm run check
+      - name: Check Rust formatting
+        run: cargo fmt --check --manifest-path apps/desktop/src-tauri/Cargo.toml
+      - name: Check Tauri backend
+        run: cargo check --locked --manifest-path apps/desktop/src-tauri/Cargo.toml

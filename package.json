@@ -4,10 +4,15 @@
   "private": true,
   "description": "Local-first meeting assistant feasibility work",
   "type": "module",
+  "workspaces": [
+    "apps/desktop"
+  ],
   "scripts": {
-    "check": "node scripts/check.mjs && node --test",
+    "check": "node scripts/check.mjs && node --test && npm run check --workspace @transcrip-it/desktop",
     "audio:devices": "node spikes/audio-capture/audio.mjs devices",
     "audio:record": "node spikes/audio-capture/audio.mjs record",
+    "desktop:dev": "npm run tauri --workspace @transcrip-it/desktop -- dev",
+    "desktop:web": "npm run dev --workspace @transcrip-it/desktop --",
     "test": "node --test"
   },
   "engines": {

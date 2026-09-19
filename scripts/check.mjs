@@ -11,6 +11,7 @@ const excludedDirectories = new Set([
   "recordings",
   "target",
   "dist",
+  "gen",
   "coverage",
   ".venv",
   "__pycache__",

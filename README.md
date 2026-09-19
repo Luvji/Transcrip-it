@@ -4,9 +4,9 @@ Transcrip It is a planned Linux-first, local-first desktop meeting assistant. It
 
 ## Current status
 
-The project is in discovery and feasibility planning. The development backlog is maintained in [`dev.tkt`](dev.tkt), based on `Owned_AI_Meeting_Assistant_Project_Plan (1).docx`.
+The project has completed its initial audio-capture feasibility spike and now includes the first production desktop shell. The development backlog is maintained in [`dev.tkt`](dev.tkt), based on `Owned_AI_Meeting_Assistant_Project_Plan (1).docx`.
 
-No production application has been implemented yet. The first technical milestone is a ten-minute Ubuntu capture spike that records recoverable microphone and system-audio tracks and plays them back after a safe stop.
+The responsive shell under [`apps/desktop`](apps/desktop) uses Tauri 2, React, TypeScript, Vite, and Tailwind CSS. It establishes the local-first workspace navigation, empty meeting library, privacy state, and headset guidance that later application tickets will connect to persistence and recording behavior.
 
 The in-progress feasibility CLI lives under `spikes/audio-capture/`. List available sources with `npm run audio:devices`, or review the capture and WebRTC echo-cancellation instructions in [`docs/feasibility/TI-0012.md`](docs/feasibility/TI-0012.md).
 
@@ -35,5 +35,13 @@ Use Node.js 22 and run the repository checks before committing:
 npm ci
 npm run check
 ```
+
+On Ubuntu, install the native packages listed in [`apps/desktop/README.md`](apps/desktop/README.md), then launch the app with:
+
+```bash
+npm run desktop:dev
+```
+
+For browser-only interface work, use `npm run desktop:web`.
 
 Enable the versioned local hook with `git config core.hooksPath .githooks`. See [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`docs/architecture/repository-layout.md`](docs/architecture/repository-layout.md) for standards and ownership boundaries.
