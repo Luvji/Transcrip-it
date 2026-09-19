@@ -84,7 +84,9 @@ TRANSCRIP-IT - DEVELOPMENT TRACKER
 *- [EPIC] [TI-0028] Meeting library and lifecycle management
   [DESC] Provide a clear local workspace for managing meetings throughout their lifecycle.
 
-    *- [FT] [TI-0029] Create, rename, tag, archive, delete, and reopen meetings
+    $- [FT] [TI-0029] Create, rename, tag, archive, delete, and reopen meetings
+      [DESC] Persist retry-safe meeting creation, rename, normalized tags, reversible archive/reopen, and permanent cascade deletion through Tauri commands.
+      [DESC] Verified migration 4, lifecycle guards, idempotent retries, nineteen Rust tests, formatting, and warning-free Clippy output.
     *- [FT] [TI-0030] Build the local meeting library
     *- [FT] [TI-0031] Require consent confirmation before recording
       [DESC] Show an unambiguous recording state and remind users of consent and policy responsibilities.

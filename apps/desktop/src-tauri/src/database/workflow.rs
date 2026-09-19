@@ -13,10 +13,11 @@ pub enum MeetingState {
     Processing,
     Ready,
     Failed,
+    Archived,
 }
 
 impl MeetingState {
-    fn as_str(self) -> &'static str {
+    pub(super) fn as_str(self) -> &'static str {
         match self {
             Self::Draft => "draft",
             Self::Recording => "recording",
@@ -24,6 +25,7 @@ impl MeetingState {
             Self::Processing => "processing",
             Self::Ready => "ready",
             Self::Failed => "failed",
+            Self::Archived => "archived",
         }
     }
 
@@ -35,6 +37,8 @@ impl MeetingState {
                 | (Self::Paused, Self::Recording | Self::Processing)
                 | (Self::Processing, Self::Ready | Self::Failed)
                 | (Self::Failed | Self::Ready, Self::Processing)
+                | (Self::Draft | Self::Ready | Self::Failed, Self::Archived)
+                | (Self::Archived, Self::Draft | Self::Ready | Self::Failed)
         )
     }
 }
@@ -50,6 +54,7 @@ impl FromStr for MeetingState {
             "processing" => Ok(Self::Processing),
             "ready" => Ok(Self::Ready),
             "failed" => Ok(Self::Failed),
+            "archived" => Ok(Self::Archived),
             _ => Err(WorkflowError::InvalidStoredState(value.to_owned())),
         }
     }

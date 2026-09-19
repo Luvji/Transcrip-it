@@ -17,6 +17,7 @@ Meeting and processing transitions follow the transactional contract in [`workfl
 ## Initial schema
 
 - `meetings` owns the lifecycle-level record and source metadata.
+- `meeting_tags` stores the normalized, user-managed tags used by the local library.
 - `transcript_segments` stores ordered, time-aligned source evidence for a meeting.
 - `transcript_derivatives` stores revisioned corrections, translations, and romanizations without overwriting source evidence.
 - `jobs` stores recoverable processing work, progress, attempts, checkpoints, and errors.
@@ -26,3 +27,4 @@ Meeting and processing transitions follow the transactional contract in [`workfl
 Meeting-owned segments, jobs, and actions cascade on meeting deletion. Deleting an individual transcript segment retains its action item but clears the evidence link. Durations and transcript offsets are integer milliseconds; timestamps are UTC ISO-8601 strings.
 
 The immutability and revision rules are documented in [`evidence-model.md`](evidence-model.md).
+Meeting creation, archival, reopening, tagging, and deletion rules are documented in [`meeting-management.md`](meeting-management.md).

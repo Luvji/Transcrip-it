@@ -48,4 +48,6 @@ SQLite data is stored in the operating system's application-data directory and i
 
 Original transcript segments are immutable. User corrections, translations, and model-derived alternatives are revisioned separately according to [`docs/architecture/evidence-model.md`](docs/architecture/evidence-model.md).
 
+Meeting creation and library lifecycle operations are exposed through retry-safe desktop commands and documented in [`docs/architecture/meeting-management.md`](docs/architecture/meeting-management.md).
+
 Enable the versioned local hook with `git config core.hooksPath .githooks`. See [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`docs/architecture/repository-layout.md`](docs/architecture/repository-layout.md) for standards and ownership boundaries.

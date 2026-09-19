@@ -30,14 +30,21 @@ const MIGRATIONS: &[Migration] = &[
         name: "evidence_separation",
         sql: include_str!("migrations/0003_evidence_separation.sql"),
     },
+    Migration {
+        version: 4,
+        name: "meeting_management",
+        sql: include_str!("migrations/0004_meeting_management.sql"),
+    },
 ];
 
 mod evidence;
+mod meetings;
 mod workflow;
 pub use evidence::{
     AuthorKind, DerivativeKind, EvidenceError, SegmentDerivative, SegmentDerivativeInput,
     SegmentText,
 };
+pub use meetings::{CreateMeetingInput, MeetingError, MeetingRecord};
 pub use workflow::{
     JobClaim, JobCompletion, JobSchedule, JobSnapshot, MeetingState, MeetingTransition,
     MeetingTransitionRequest, WorkflowError,
@@ -209,7 +216,7 @@ mod tests {
             assert!(exists, "expected table {table}");
         }
 
-        assert_eq!(current_schema_version(&connection).unwrap(), 3);
+        assert_eq!(current_schema_version(&connection).unwrap(), 4);
     }
 
     #[test]
@@ -225,7 +232,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(migration_count, 3);
+        assert_eq!(migration_count, 4);
     }
 
     #[test]
@@ -272,7 +279,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(upgraded, ("job-1".to_owned(), "queued".to_owned(), None));
-        assert_eq!(current_schema_version(&connection).unwrap(), 3);
+        assert_eq!(current_schema_version(&connection).unwrap(), 4);
     }
 
     #[test]
