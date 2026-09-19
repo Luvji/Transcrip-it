@@ -1,6 +1,6 @@
 use crate::database::{
-    Database, MeetingState, MeetingTransitionRequest, TranscriptSegmentInput,
-    TranscriptSegmentRecord,
+    AuthorKind, Database, DerivativeKind, MeetingState, MeetingTransitionRequest,
+    SegmentDerivativeInput, SegmentText, TranscriptSegmentInput, TranscriptSegmentRecord,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -183,6 +183,31 @@ pub fn search_transcripts(
 }
 
 #[tauri::command]
+pub fn correct_transcript_segment(
+    database: tauri::State<'_, Database>,
+    segment_id: String,
+    correction_id: String,
+    idempotency_key: String,
+    text: String,
+) -> Result<SegmentText, String> {
+    database
+        .append_segment_derivative(&SegmentDerivativeInput {
+            id: correction_id,
+            idempotency_key,
+            segment_id: segment_id.clone(),
+            kind: DerivativeKind::Correction,
+            author: AuthorKind::User,
+            text,
+            language_code: Some("en".to_owned()),
+            model_id: None,
+        })
+        .map_err(|error| error.to_string())?;
+    database
+        .segment_text(&segment_id)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub fn export_transcript(
     database: tauri::State<'_, Database>,
     meeting_id: String,
@@ -220,12 +245,12 @@ pub fn export_transcript(
         if format == "markdown" {
             content.push_str(&format!(
                 "**[{timestamp}] {speaker}**  \n{}\n\n",
-                segment.source_text
+                segment.display_text
             ));
         } else {
             content.push_str(&format!(
                 "[{timestamp}] {speaker}: {}\n",
-                segment.source_text
+                segment.display_text
             ));
         }
     }

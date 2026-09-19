@@ -136,6 +136,7 @@ pub fn run() {
             transcription::install_transcription_model,
             transcription::list_transcript,
             transcription::search_transcripts,
+            transcription::correct_transcript_segment,
             transcription::export_transcript,
             transcription::transcribe_meeting
         ])

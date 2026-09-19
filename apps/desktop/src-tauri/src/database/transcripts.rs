@@ -19,6 +19,8 @@ pub struct TranscriptSegmentRecord {
     pub end_ms: i64,
     pub speaker_label: Option<String>,
     pub source_text: String,
+    pub display_text: String,
+    pub active_correction_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -182,8 +184,11 @@ fn query_transcript(
     meeting_id: &str,
 ) -> Result<Vec<TranscriptSegmentRecord>, TranscriptError> {
     let mut statement = connection.prepare(
-        "SELECT id, sequence_number, start_ms, end_ms, speaker_label, source_text
-         FROM transcript_segments WHERE meeting_id = ?1 ORDER BY sequence_number",
+        "SELECT s.id, s.sequence_number, s.start_ms, s.end_ms, s.speaker_label,
+                c.source_text, c.display_text, c.active_correction_id
+         FROM transcript_segments s
+         JOIN transcript_current_text c ON c.segment_id = s.id
+         WHERE s.meeting_id = ?1 ORDER BY s.sequence_number",
     )?;
     let records = statement
         .query_map([meeting_id], |row| {
@@ -194,6 +199,8 @@ fn query_transcript(
                 end_ms: row.get(3)?,
                 speaker_label: row.get(4)?,
                 source_text: row.get(5)?,
+                display_text: row.get(6)?,
+                active_correction_id: row.get(7)?,
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -203,7 +210,7 @@ fn query_transcript(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::database::CreateMeetingInput;
+    use crate::database::{AuthorKind, CreateMeetingInput, DerivativeKind, SegmentDerivativeInput};
 
     #[test]
     fn source_transcript_is_stored_once_with_timestamps() {
@@ -228,5 +235,19 @@ mod tests {
         let results = database.search_transcripts("hello").unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].meeting_id, "m1");
+        database
+            .append_segment_derivative(&SegmentDerivativeInput {
+                id: "correction-1".to_owned(),
+                idempotency_key: "correct-m1-1".to_owned(),
+                segment_id: "m1:source:0".to_owned(),
+                kind: DerivativeKind::Correction,
+                author: AuthorKind::User,
+                text: "Corrected phrase".to_owned(),
+                language_code: Some("en".to_owned()),
+                model_id: None,
+            })
+            .unwrap();
+        assert!(database.search_transcripts("hello").unwrap().is_empty());
+        assert_eq!(database.search_transcripts("corrected").unwrap().len(), 1);
     }
 }

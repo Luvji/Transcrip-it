@@ -14,4 +14,6 @@ The first supported pack is **Balanced English** (approximately 142 MiB). It run
 
 Original source segments are immutable and idempotent. The transcript viewer links timestamps back to matching microphone audio. SQLite FTS5 indexes source text for local search. Markdown and plain-text exports are written beneath the meeting's private recording directory.
 
+User corrections append a new revision through the evidence model rather than changing source text. The viewer can reveal the preserved original, search follows the latest correction, and exports use the current corrected display text.
+
 The command and JSON format follow the official [whisper.cpp CLI documentation](https://github.com/ggml-org/whisper.cpp/tree/master/examples/cli), and model metadata follows the official [model catalog](https://github.com/ggml-org/whisper.cpp/blob/master/models/README.md).

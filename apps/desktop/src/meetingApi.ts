@@ -180,6 +180,8 @@ export interface TranscriptSegment {
   endMs: number;
   speakerLabel: string | null;
   sourceText: string;
+  displayText: string;
+  activeCorrectionId: string | null;
 }
 
 export interface TranscriptionModelStatus {
@@ -222,5 +224,10 @@ export const transcriptionApi = {
   async export(meetingId: string, format: "markdown" | "text"): Promise<string> {
     if (!isTauri()) throw new Error("Transcript export is available in the Transcrip-it desktop app.");
     return invoke("export_transcript", { meetingId, format });
+  },
+  async correct(segmentId: string, text: string): Promise<{ segmentId: string; sourceText: string; displayText: string; activeCorrectionId: string | null }> {
+    if (!isTauri()) throw new Error("Transcript correction is available in the Transcrip-it desktop app.");
+    const correctionId = crypto.randomUUID();
+    return invoke("correct_transcript_segment", { segmentId, text, correctionId, idempotencyKey: `correction-${correctionId}` });
   },
 };
