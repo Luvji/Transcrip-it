@@ -1,4 +1,5 @@
 pub mod database;
+pub mod engines;
 
 use database::{Database, DatabaseStatus};
 use tauri::Manager;
