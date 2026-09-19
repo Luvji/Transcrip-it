@@ -306,11 +306,19 @@ fn run_transcription(
         .duration_since(UNIX_EPOCH)
         .map_err(|error| error.to_string())?
         .as_millis();
+    let initial_state = database
+        .meeting_state(meeting_id)
+        .map_err(|error| error.to_string())?;
+    if !matches!(initial_state, MeetingState::Ready | MeetingState::Failed) {
+        return Err(format!(
+            "Meeting cannot be transcribed while in state {initial_state:?}."
+        ));
+    }
     database
         .transition_meeting(&MeetingTransitionRequest {
             meeting_id: meeting_id.to_owned(),
             idempotency_key: format!("transcription-start:{meeting_id}:{run_id}"),
-            expected_state: MeetingState::Ready,
+            expected_state: initial_state,
             next_state: MeetingState::Processing,
         })
         .map_err(|error| error.to_string())?;

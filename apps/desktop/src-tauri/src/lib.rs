@@ -111,7 +111,9 @@ pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
             let database_path = app.path().app_data_dir()?.join("transcrip-it.sqlite3");
-            app.manage(Database::open(&database_path)?);
+            let database = Database::open(&database_path)?;
+            database.recover_interrupted_meetings()?;
+            app.manage(database);
             app.manage(Recorder::new());
             app.manage(Transcriber::new());
             Ok(())

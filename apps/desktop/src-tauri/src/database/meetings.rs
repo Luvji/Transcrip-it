@@ -326,16 +326,33 @@ impl Database {
             .ok_or_else(|| MeetingError::NotFound(meeting_id.to_owned()))
     }
 
-    pub fn mark_recording_started(&self, meeting_id: &str) -> Result<(), MeetingError> {
+    pub fn meeting_state(&self, meeting_id: &str) -> Result<MeetingState, MeetingError> {
+        let stored: String = self
+            .connection()?
+            .query_row(
+                "SELECT lifecycle_state FROM meetings WHERE id = ?1",
+                [meeting_id],
+                |row| row.get(0),
+            )
+            .optional()?
+            .ok_or_else(|| MeetingError::NotFound(meeting_id.to_owned()))?;
+        MeetingState::from_str(&stored).map_err(MeetingError::from)
+    }
+
+    pub fn mark_recording_started(
+        &self,
+        meeting_id: &str,
+        recording_path: &str,
+    ) -> Result<(), MeetingError> {
         let changed = self.connection()?.execute(
             "UPDATE meetings
              SET started_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
                  ended_at = NULL,
                  duration_ms = NULL,
-                 recording_path = NULL,
+                 recording_path = ?2,
                  updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
              WHERE id = ?1",
-            [meeting_id],
+            params![meeting_id, recording_path],
         )?;
         if changed == 1 {
             Ok(())

@@ -119,6 +119,17 @@ impl Recorder {
     }
 }
 
+impl Drop for Recorder {
+    fn drop(&mut self) {
+        if let Ok(active) = self.active.get_mut() {
+            if let Some(recording) = active.as_mut() {
+                let _ = signal_tree(&recording.child, "CONT");
+                stop_child(&mut recording.child);
+            }
+        }
+    }
+}
+
 #[tauri::command]
 pub fn start_recording(
     app: tauri::AppHandle,
@@ -224,7 +235,7 @@ pub fn start_recording(
         return Err(error.to_string());
     }
     database
-        .mark_recording_started(&meeting_id)
+        .mark_recording_started(&meeting_id, &recording_path.to_string_lossy())
         .map_err(|error| error.to_string())?;
 
     *active = Some(ActiveRecording {
@@ -402,9 +413,14 @@ pub fn play_recording_track(
     database: tauri::State<'_, Database>,
     meeting_id: String,
     track: String,
+    start_ms: Option<i64>,
 ) -> Result<PlaybackStarted, String> {
     if !matches!(track.as_str(), "mic" | "mic_raw" | "system") {
         return Err("Unsupported recording track.".to_owned());
+    }
+    let start_ms = start_ms.unwrap_or(0);
+    if start_ms < 0 {
+        return Err("Playback start time cannot be negative.".to_owned());
     }
     let recording_path = database
         .meeting_recording_path(&meeting_id)
@@ -434,18 +450,22 @@ pub fn play_recording_track(
         .collect::<String>();
     fs::write(&playlist_path, format!("ffconcat version 1.0\n{playlist}"))
         .map_err(|error| format!("Could not prepare playback: {error}"))?;
-    Command::new("ffplay")
-        .args([
-            "-nodisp",
-            "-autoexit",
-            "-loglevel",
-            "error",
-            "-f",
-            "concat",
-            "-safe",
-            "0",
-            "-i",
-        ])
+    let mut command = Command::new("ffplay");
+    command.args([
+        "-nodisp",
+        "-autoexit",
+        "-loglevel",
+        "error",
+        "-f",
+        "concat",
+        "-safe",
+        "0",
+    ]);
+    if start_ms > 0 {
+        command.args(["-ss", &format!("{:.3}", start_ms as f64 / 1000.0)]);
+    }
+    command
+        .arg("-i")
         .arg(playlist_path)
         .stdin(Stdio::null())
         .stdout(Stdio::null())

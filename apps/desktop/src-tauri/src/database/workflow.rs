@@ -225,6 +225,40 @@ impl From<serde_json::Error> for WorkflowError {
 }
 
 impl Database {
+    pub fn recover_interrupted_meetings(&self) -> Result<usize, WorkflowError> {
+        let interrupted = {
+            let connection = self.connection()?;
+            let mut statement = connection.prepare(
+                "SELECT id, lifecycle_state FROM meetings
+                 WHERE lifecycle_state IN ('recording', 'paused', 'processing')",
+            )?;
+            let meetings = statement
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            meetings
+        };
+        for (meeting_id, stored_state) in &interrupted {
+            let state = MeetingState::from_str(stored_state)?;
+            if matches!(state, MeetingState::Recording | MeetingState::Paused) {
+                self.transition_meeting(&MeetingTransitionRequest {
+                    meeting_id: meeting_id.clone(),
+                    idempotency_key: format!("startup-recovery-process:{meeting_id}"),
+                    expected_state: state,
+                    next_state: MeetingState::Processing,
+                })?;
+            }
+            self.transition_meeting(&MeetingTransitionRequest {
+                meeting_id: meeting_id.clone(),
+                idempotency_key: format!("startup-recovery-fail:{meeting_id}"),
+                expected_state: MeetingState::Processing,
+                next_state: MeetingState::Failed,
+            })?;
+        }
+        Ok(interrupted.len())
+    }
+
     pub fn transition_meeting(
         &self,
         request: &MeetingTransitionRequest,
@@ -661,6 +695,25 @@ mod tests {
             .unwrap_err();
 
         assert!(matches!(error, WorkflowError::InvalidTransition { .. }));
+    }
+
+    #[test]
+    fn startup_recovery_moves_interrupted_meetings_to_failed() {
+        let database = database_with_meeting();
+        database
+            .transition_meeting(&MeetingTransitionRequest {
+                meeting_id: "meeting-1".to_owned(),
+                idempotency_key: "start-before-crash".to_owned(),
+                expected_state: MeetingState::Draft,
+                next_state: MeetingState::Recording,
+            })
+            .unwrap();
+        assert_eq!(database.recover_interrupted_meetings().unwrap(), 1);
+        assert_eq!(
+            database.meeting_state("meeting-1").unwrap(),
+            MeetingState::Failed
+        );
+        assert_eq!(database.recover_interrupted_meetings().unwrap(), 0);
     }
 
     #[test]

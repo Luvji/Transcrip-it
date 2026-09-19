@@ -93,8 +93,9 @@ TRANSCRIP-IT - DEVELOPMENT TRACKER
     $- [FT] [TI-0031] Require consent confirmation before recording
       [DESC] Show an unambiguous recording state and remind users of consent and policy responsibilities.
       [DESC] Block capture until explicit acknowledgement and show distinct live, paused, stopped, and failure states.
-    @- [ENH] [TI-0032] Recover an interrupted meeting lifecycle on restart
+    $- [ENH] [TI-0032] Recover an interrupted meeting lifecycle on restart
       [DESC] Reopen unfinished recordings from the last safe checkpoint without corrupting completed work.
+      [DESC] Safely stop child capture on shutdown, audit interrupted lifecycle recovery, expose preserved chunks, and allow transcript retry after restart.
 
 *- [EPIC] [TI-0033] Reliable microphone and system-audio capture
   [DESC] Capture meeting audio in recoverable chunks without silently losing data.
