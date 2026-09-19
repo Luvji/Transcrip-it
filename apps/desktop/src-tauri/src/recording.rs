@@ -1,0 +1,674 @@
+use crate::database::{Database, MeetingState, MeetingTransitionRequest};
+use serde::{Deserialize, Serialize};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    process::{Child, Command, Stdio},
+    sync::Mutex,
+    thread,
+    time::{Duration, Instant},
+};
+use tauri::Manager;
+
+const CAPTURE_SCRIPT: &str = include_str!("../../../../spikes/audio-capture/audio.mjs");
+
+pub struct Recorder {
+    active: Mutex<Option<ActiveRecording>>,
+}
+
+struct ActiveRecording {
+    meeting_id: String,
+    output_path: PathBuf,
+    child: Child,
+    started: Instant,
+    paused_at: Option<Instant>,
+    paused_total: Duration,
+    pause_count: u32,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordingStatus {
+    active: bool,
+    meeting_id: Option<String>,
+    elapsed_seconds: u64,
+    process_running: bool,
+    paused: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StartRecordingOptions {
+    mode: String,
+    mic_source: Option<String>,
+    system_source: Option<String>,
+    echo_cancellation: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioDevices {
+    default_source: String,
+    default_sink: String,
+    system_source: Option<String>,
+    sources: Vec<AudioSource>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioSource {
+    name: String,
+    monitor: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompletedRecording {
+    meeting_id: String,
+    duration_ms: i64,
+    recording_path: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaybackStarted {
+    track: String,
+    chunk_count: usize,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CaptureManifest {
+    status: String,
+    tracks: Vec<CaptureTrack>,
+    errors: Vec<CaptureError>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CaptureTrack {
+    captured_duration_seconds: Option<f64>,
+}
+
+#[derive(Deserialize)]
+struct CaptureError {
+    message: String,
+}
+
+impl Recorder {
+    pub fn new() -> Self {
+        Self {
+            active: Mutex::new(None),
+        }
+    }
+}
+
+#[tauri::command]
+pub fn start_recording(
+    app: tauri::AppHandle,
+    database: tauri::State<'_, Database>,
+    recorder: tauri::State<'_, Recorder>,
+    meeting_id: String,
+    consent_confirmed: bool,
+    options: StartRecordingOptions,
+) -> Result<RecordingStatus, String> {
+    if !consent_confirmed {
+        return Err("Recording requires explicit consent confirmation.".to_owned());
+    }
+    validate_meeting_id(&meeting_id)?;
+    if !matches!(options.mode.as_str(), "mic" | "system" | "both") {
+        return Err("Capture mode must be mic, system, or both.".to_owned());
+    }
+    if options.echo_cancellation && options.mode != "both" {
+        return Err("Echo cancellation requires microphone + system capture.".to_owned());
+    }
+    let mut active = recorder
+        .active
+        .lock()
+        .map_err(|_| "recording state lock is poisoned".to_owned())?;
+    if let Some(recording) = active.as_ref() {
+        return Err(format!(
+            "A recording is already active for meeting {}.",
+            recording.meeting_id
+        ));
+    }
+
+    let app_data = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?;
+    let script_path = install_capture_script(&app_data)?;
+    let recording_path = app_data.join("recordings").join(&meeting_id);
+    if recording_path.exists() {
+        return Err("A recording directory already exists for this meeting.".to_owned());
+    }
+    fs::create_dir_all(
+        recording_path
+            .parent()
+            .ok_or_else(|| "recording path has no parent".to_owned())?,
+    )
+    .map_err(|error| format!("Could not create recording storage: {error}"))?;
+
+    ensure_capture_dependencies()?;
+    let mut command = Command::new("node");
+    command
+        .arg(script_path)
+        .args(["record", "--mode", &options.mode, "--consent-confirmed"]);
+    if options.echo_cancellation {
+        command.arg("--echo-cancel");
+    }
+    if let Some(source) = options
+        .mic_source
+        .as_deref()
+        .filter(|source| !source.is_empty())
+    {
+        command.args(["--mic-source", source]);
+    }
+    if let Some(source) = options
+        .system_source
+        .as_deref()
+        .filter(|source| !source.is_empty())
+    {
+        command.args(["--system-source", source]);
+    }
+    let mut child = command
+        .arg("--output")
+        .arg(&recording_path)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|error| format!("Could not start the audio recorder: {error}"))?;
+
+    thread::sleep(Duration::from_millis(350));
+    if let Some(status) = child.try_wait().map_err(|error| error.to_string())? {
+        return Err(format!(
+            "Audio capture stopped during startup with status {status}. Check that microphone and system-audio devices are available."
+        ));
+    }
+
+    let transition = MeetingTransitionRequest {
+        meeting_id: meeting_id.clone(),
+        idempotency_key: format!("recording-start:{meeting_id}"),
+        expected_state: MeetingState::Draft,
+        next_state: MeetingState::Recording,
+    };
+    if let Err(error) = database.transition_meeting(&transition) {
+        stop_child(&mut child);
+        return Err(error.to_string());
+    }
+    database
+        .mark_recording_started(&meeting_id)
+        .map_err(|error| error.to_string())?;
+
+    *active = Some(ActiveRecording {
+        meeting_id: meeting_id.clone(),
+        output_path: recording_path,
+        child,
+        started: Instant::now(),
+        paused_at: None,
+        paused_total: Duration::ZERO,
+        pause_count: 0,
+    });
+    Ok(RecordingStatus {
+        active: true,
+        meeting_id: Some(meeting_id),
+        elapsed_seconds: 0,
+        process_running: true,
+        paused: false,
+    })
+}
+
+#[tauri::command]
+pub fn audio_devices() -> Result<AudioDevices, String> {
+    let default_source = pactl_output(&["get-default-source"])?;
+    let default_sink = pactl_output(&["get-default-sink"])?;
+    let sources = parse_sources(&pactl_output(&["list", "short", "sources"])?);
+    let expected_monitor = format!("{default_sink}.monitor");
+    let system_source = sources
+        .iter()
+        .find(|source| source.name == expected_monitor)
+        .or_else(|| sources.iter().find(|source| source.monitor))
+        .map(|source| source.name.clone());
+    Ok(AudioDevices {
+        default_source,
+        default_sink,
+        system_source,
+        sources,
+    })
+}
+
+#[tauri::command]
+pub fn recording_status(recorder: tauri::State<'_, Recorder>) -> Result<RecordingStatus, String> {
+    let mut active = recorder
+        .active
+        .lock()
+        .map_err(|_| "recording state lock is poisoned".to_owned())?;
+    let Some(recording) = active.as_mut() else {
+        return Ok(RecordingStatus {
+            active: false,
+            meeting_id: None,
+            elapsed_seconds: 0,
+            process_running: false,
+            paused: false,
+        });
+    };
+    let process_running = recording
+        .child
+        .try_wait()
+        .map_err(|error| error.to_string())?
+        .is_none();
+    Ok(RecordingStatus {
+        active: true,
+        meeting_id: Some(recording.meeting_id.clone()),
+        elapsed_seconds: recording_elapsed(recording).as_secs(),
+        process_running,
+        paused: recording.paused_at.is_some(),
+    })
+}
+
+#[tauri::command]
+pub fn pause_recording(
+    database: tauri::State<'_, Database>,
+    recorder: tauri::State<'_, Recorder>,
+    meeting_id: String,
+) -> Result<RecordingStatus, String> {
+    let mut active = recorder
+        .active
+        .lock()
+        .map_err(|_| "recording state lock is poisoned".to_owned())?;
+    let recording = active
+        .as_mut()
+        .ok_or_else(|| "No recording is active.".to_owned())?;
+    ensure_active_meeting(recording, &meeting_id)?;
+    if recording.paused_at.is_some() {
+        return status_for(recording);
+    }
+    recording.pause_count += 1;
+    database
+        .transition_meeting(&MeetingTransitionRequest {
+            meeting_id: meeting_id.clone(),
+            idempotency_key: format!("recording-pause:{meeting_id}:{}", recording.pause_count),
+            expected_state: MeetingState::Recording,
+            next_state: MeetingState::Paused,
+        })
+        .map_err(|error| error.to_string())?;
+    signal_tree(&recording.child, "STOP")?;
+    recording.paused_at = Some(Instant::now());
+    status_for(recording)
+}
+
+#[tauri::command]
+pub fn resume_recording(
+    database: tauri::State<'_, Database>,
+    recorder: tauri::State<'_, Recorder>,
+    meeting_id: String,
+) -> Result<RecordingStatus, String> {
+    let mut active = recorder
+        .active
+        .lock()
+        .map_err(|_| "recording state lock is poisoned".to_owned())?;
+    let recording = active
+        .as_mut()
+        .ok_or_else(|| "No recording is active.".to_owned())?;
+    ensure_active_meeting(recording, &meeting_id)?;
+    resume_active(&database, recording)?;
+    status_for(recording)
+}
+
+#[tauri::command]
+pub fn stop_recording(
+    database: tauri::State<'_, Database>,
+    recorder: tauri::State<'_, Recorder>,
+    meeting_id: String,
+) -> Result<CompletedRecording, String> {
+    let mut guard = recorder
+        .active
+        .lock()
+        .map_err(|_| "recording state lock is poisoned".to_owned())?;
+    let mut recording = guard
+        .take()
+        .ok_or_else(|| "No recording is active.".to_owned())?;
+    if recording.meeting_id != meeting_id {
+        let active_id = recording.meeting_id.clone();
+        *guard = Some(recording);
+        return Err(format!(
+            "The active recording belongs to meeting {active_id}."
+        ));
+    }
+
+    resume_active(&database, &mut recording)?;
+    stop_child(&mut recording.child);
+    let manifest = read_manifest(&recording.output_path)?;
+    if manifest.status != "complete" {
+        fail_recording(&database, &meeting_id)?;
+        let details = manifest
+            .errors
+            .iter()
+            .map(|error| error.message.as_str())
+            .collect::<Vec<_>>()
+            .join("; ");
+        return Err(if details.is_empty() {
+            "Audio capture did not complete successfully.".to_owned()
+        } else {
+            format!("Audio capture failed: {details}")
+        });
+    }
+
+    let duration_ms = manifest
+        .tracks
+        .iter()
+        .filter_map(|track| track.captured_duration_seconds)
+        .fold(0.0_f64, f64::max)
+        .mul_add(1000.0, 0.0)
+        .round() as i64;
+    database
+        .mark_recording_finished(
+            &meeting_id,
+            duration_ms,
+            &recording.output_path.to_string_lossy(),
+        )
+        .map_err(|error| error.to_string())?;
+    transition_after_capture(&database, &meeting_id, MeetingState::Ready)?;
+
+    Ok(CompletedRecording {
+        meeting_id,
+        duration_ms,
+        recording_path: recording.output_path.to_string_lossy().into_owned(),
+    })
+}
+
+#[tauri::command]
+pub fn play_recording_track(
+    database: tauri::State<'_, Database>,
+    meeting_id: String,
+    track: String,
+) -> Result<PlaybackStarted, String> {
+    if !matches!(track.as_str(), "mic" | "mic_raw" | "system") {
+        return Err("Unsupported recording track.".to_owned());
+    }
+    let recording_path = database
+        .meeting_recording_path(&meeting_id)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "This meeting has no completed recording.".to_owned())?;
+    let recording_path = PathBuf::from(recording_path);
+    let prefix = format!("{track}-");
+    let mut chunks = fs::read_dir(&recording_path)
+        .map_err(|error| format!("Could not read recording directory: {error}"))?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with(&prefix) && name.ends_with(".wav"))
+        })
+        .collect::<Vec<_>>();
+    chunks.sort();
+    if chunks.is_empty() {
+        return Err(format!("No {track} audio was captured for this meeting."));
+    }
+
+    let playlist_path = recording_path.join(format!("play-{track}.ffconcat"));
+    let playlist = chunks
+        .iter()
+        .map(|path| format!("file '{}'\n", path.to_string_lossy().replace('\'', "'\\''")))
+        .collect::<String>();
+    fs::write(&playlist_path, format!("ffconcat version 1.0\n{playlist}"))
+        .map_err(|error| format!("Could not prepare playback: {error}"))?;
+    Command::new("ffplay")
+        .args([
+            "-nodisp",
+            "-autoexit",
+            "-loglevel",
+            "error",
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+        ])
+        .arg(playlist_path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|error| format!("Could not start audio playback: {error}"))?;
+    Ok(PlaybackStarted {
+        track,
+        chunk_count: chunks.len(),
+    })
+}
+
+fn install_capture_script(app_data: &Path) -> Result<PathBuf, String> {
+    let runtime_directory = app_data.join("runtime");
+    fs::create_dir_all(&runtime_directory)
+        .map_err(|error| format!("Could not create recorder runtime directory: {error}"))?;
+    let script_path = runtime_directory.join("audio-capture.mjs");
+    if fs::read_to_string(&script_path).ok().as_deref() != Some(CAPTURE_SCRIPT) {
+        fs::write(&script_path, CAPTURE_SCRIPT)
+            .map_err(|error| format!("Could not install the audio recorder: {error}"))?;
+    }
+    Ok(script_path)
+}
+
+fn ensure_capture_dependencies() -> Result<(), String> {
+    for executable in ["node", "pactl", "parec"] {
+        let available = Command::new(executable)
+            .arg("--version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false);
+        if !available {
+            return Err(format!("Required audio tool is unavailable: {executable}"));
+        }
+    }
+    Ok(())
+}
+
+fn pactl_output(arguments: &[&str]) -> Result<String, String> {
+    let output = Command::new("pactl")
+        .args(arguments)
+        .output()
+        .map_err(|error| format!("Could not run pactl: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "PulseAudio device query failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
+}
+
+fn parse_sources(output: &str) -> Vec<AudioSource> {
+    output
+        .lines()
+        .filter_map(|line| line.split('\t').nth(1))
+        .map(|name| AudioSource {
+            name: name.to_owned(),
+            monitor: name.ends_with(".monitor"),
+        })
+        .collect()
+}
+
+fn stop_child(child: &mut Child) {
+    if child.try_wait().ok().flatten().is_none() {
+        let signalled = Command::new("kill")
+            .args(["-INT", &child.id().to_string()])
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false);
+        if !signalled {
+            let _ = child.kill();
+        }
+    }
+    let _ = child.wait();
+}
+
+fn signal_tree(child: &Child, signal: &str) -> Result<(), String> {
+    let pid = child.id().to_string();
+    let children_first = signal == "STOP";
+    let signal_parent = || {
+        Command::new("kill")
+            .args([format!("-{signal}"), pid.clone()])
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false)
+    };
+    let signal_children = || {
+        Command::new("pkill")
+            .args([format!("-{signal}"), "-P".to_owned(), pid.clone()])
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false)
+    };
+    let parent_ok = if children_first {
+        let _ = signal_children();
+        signal_parent()
+    } else {
+        let parent_ok = signal_parent();
+        let _ = signal_children();
+        parent_ok
+    };
+    if parent_ok {
+        Ok(())
+    } else {
+        Err(format!("Could not {signal} the recording process."))
+    }
+}
+
+fn resume_active(database: &Database, recording: &mut ActiveRecording) -> Result<(), String> {
+    let Some(paused_at) = recording.paused_at else {
+        return Ok(());
+    };
+    database
+        .transition_meeting(&MeetingTransitionRequest {
+            meeting_id: recording.meeting_id.clone(),
+            idempotency_key: format!(
+                "recording-resume:{}:{}",
+                recording.meeting_id, recording.pause_count
+            ),
+            expected_state: MeetingState::Paused,
+            next_state: MeetingState::Recording,
+        })
+        .map_err(|error| error.to_string())?;
+    signal_tree(&recording.child, "CONT")?;
+    recording.paused_total += paused_at.elapsed();
+    recording.paused_at = None;
+    Ok(())
+}
+
+fn ensure_active_meeting(recording: &ActiveRecording, meeting_id: &str) -> Result<(), String> {
+    if recording.meeting_id == meeting_id {
+        Ok(())
+    } else {
+        Err(format!(
+            "The active recording belongs to meeting {}.",
+            recording.meeting_id
+        ))
+    }
+}
+
+fn recording_elapsed(recording: &ActiveRecording) -> Duration {
+    let current_pause = recording
+        .paused_at
+        .map_or(Duration::ZERO, |paused| paused.elapsed());
+    recording
+        .started
+        .elapsed()
+        .saturating_sub(recording.paused_total + current_pause)
+}
+
+fn status_for(recording: &mut ActiveRecording) -> Result<RecordingStatus, String> {
+    let process_running = recording
+        .child
+        .try_wait()
+        .map_err(|error| error.to_string())?
+        .is_none();
+    Ok(RecordingStatus {
+        active: true,
+        meeting_id: Some(recording.meeting_id.clone()),
+        elapsed_seconds: recording_elapsed(recording).as_secs(),
+        process_running,
+        paused: recording.paused_at.is_some(),
+    })
+}
+
+fn read_manifest(recording_path: &Path) -> Result<CaptureManifest, String> {
+    let path = recording_path.join("manifest.json");
+    let content = fs::read_to_string(&path).map_err(|error| {
+        format!(
+            "Could not read capture manifest {}: {error}",
+            path.display()
+        )
+    })?;
+    serde_json::from_str(&content).map_err(|error| format!("Invalid capture manifest: {error}"))
+}
+
+fn transition_after_capture(
+    database: &Database,
+    meeting_id: &str,
+    final_state: MeetingState,
+) -> Result<(), String> {
+    database
+        .transition_meeting(&MeetingTransitionRequest {
+            meeting_id: meeting_id.to_owned(),
+            idempotency_key: format!("recording-process:{meeting_id}"),
+            expected_state: MeetingState::Recording,
+            next_state: MeetingState::Processing,
+        })
+        .map_err(|error| error.to_string())?;
+    database
+        .transition_meeting(&MeetingTransitionRequest {
+            meeting_id: meeting_id.to_owned(),
+            idempotency_key: format!("recording-finish:{meeting_id}"),
+            expected_state: MeetingState::Processing,
+            next_state: final_state,
+        })
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn fail_recording(database: &Database, meeting_id: &str) -> Result<(), String> {
+    transition_after_capture(database, meeting_id, MeetingState::Failed)
+}
+
+fn validate_meeting_id(meeting_id: &str) -> Result<(), String> {
+    if !meeting_id.is_empty()
+        && meeting_id
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+    {
+        Ok(())
+    } else {
+        Err("Meeting ID contains unsupported characters.".to_owned())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn meeting_ids_are_safe_for_recording_paths() {
+        assert!(validate_meeting_id("0199-demo_meeting").is_ok());
+        assert!(validate_meeting_id("../escape").is_err());
+        assert!(validate_meeting_id("").is_err());
+    }
+
+    #[test]
+    fn embedded_capture_script_is_present() {
+        assert!(CAPTURE_SCRIPT.contains("--consent-confirmed"));
+        assert!(CAPTURE_SCRIPT.contains("module-echo-cancel"));
+    }
+
+    #[test]
+    fn parses_microphone_and_monitor_sources() {
+        let sources = parse_sources(
+            "1\talsa_input.usb-mic\tmodule\ts16le\n2\talsa_output.pci.monitor\tmodule\ts16le",
+        );
+        assert_eq!(sources.len(), 2);
+        assert!(!sources[0].monitor);
+        assert!(sources[1].monitor);
+    }
+}

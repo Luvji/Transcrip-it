@@ -15,6 +15,7 @@ export interface Meeting {
   state: MeetingState;
   sourceKind: string;
   durationMs: number | null;
+  recordingPath: string | null;
   createdAt: string;
   updatedAt: string;
   tags: string[];
@@ -64,6 +65,7 @@ export const meetingApi = {
       state: "draft",
       sourceKind: "recording",
       durationMs: null,
+      recordingPath: null,
       createdAt: timestamp,
       updatedAt: timestamp,
       tags: [],
@@ -104,5 +106,65 @@ export const meetingApi = {
       return;
     }
     saveBrowserMeetings(browserMeetings().filter((meeting) => meeting.id !== meetingId));
+  },
+};
+
+export interface RecordingStatus {
+  active: boolean;
+  meetingId: string | null;
+  elapsedSeconds: number;
+  processRunning: boolean;
+  paused: boolean;
+}
+
+export interface CompletedRecording {
+  meetingId: string;
+  durationMs: number;
+  recordingPath: string;
+}
+
+export interface StartRecordingOptions {
+  mode: "mic" | "system" | "both";
+  micSource: string | null;
+  systemSource: string | null;
+  echoCancellation: boolean;
+}
+
+export interface AudioDevices {
+  defaultSource: string;
+  defaultSink: string;
+  systemSource: string | null;
+  sources: { name: string; monitor: boolean }[];
+}
+
+export const recordingApi = {
+  available: isTauri(),
+  async start(meetingId: string, consentConfirmed: boolean, options: StartRecordingOptions): Promise<RecordingStatus> {
+    if (!isTauri()) throw new Error("Audio capture is available in the Transcrip-it desktop app.");
+    return invoke("start_recording", { meetingId, consentConfirmed, options });
+  },
+  async devices(): Promise<AudioDevices> {
+    if (!isTauri()) return { defaultSource: "", defaultSink: "", systemSource: null, sources: [] };
+    return invoke("audio_devices");
+  },
+  async status(): Promise<RecordingStatus> {
+    if (!isTauri()) return { active: false, meetingId: null, elapsedSeconds: 0, processRunning: false, paused: false };
+    return invoke("recording_status");
+  },
+  async stop(meetingId: string): Promise<CompletedRecording> {
+    if (!isTauri()) throw new Error("Audio capture is available in the Transcrip-it desktop app.");
+    return invoke("stop_recording", { meetingId });
+  },
+  async pause(meetingId: string): Promise<RecordingStatus> {
+    if (!isTauri()) throw new Error("Audio capture is available in the Transcrip-it desktop app.");
+    return invoke("pause_recording", { meetingId });
+  },
+  async resume(meetingId: string): Promise<RecordingStatus> {
+    if (!isTauri()) throw new Error("Audio capture is available in the Transcrip-it desktop app.");
+    return invoke("resume_recording", { meetingId });
+  },
+  async play(meetingId: string, track: "mic" | "system"): Promise<void> {
+    if (!isTauri()) throw new Error("Audio playback is available in the Transcrip-it desktop app.");
+    await invoke("play_recording_track", { meetingId, track });
   },
 };

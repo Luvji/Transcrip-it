@@ -14,21 +14,19 @@ describe("desktop workspace", () => {
     expect(await screen.findByText("Your meeting library starts here")).toBeInTheDocument();
   });
 
-  it("requires consent and creates a local meeting", async () => {
+  it("requires consent and keeps browser preview from claiming audio capture", async () => {
     const user = userEvent.setup();
     render(<App />);
 
     await user.click(screen.getByRole("button", { name: "New recording" }));
     expect(screen.getByRole("heading", { name: "Prepare your meeting" })).toBeInTheDocument();
-    const prepare = screen.getByRole("button", { name: "Prepare recording" });
+    const prepare = screen.getByRole("button", { name: "Start recording" });
     expect(prepare).toBeDisabled();
 
     await user.type(screen.getByRole("textbox", { name: "Meeting title" }), "Design review");
     await user.click(screen.getByRole("checkbox", { name: /I confirm everyone has consented/ }));
-    await user.click(prepare);
-
-    expect(await screen.findByRole("heading", { name: "Design review" })).toBeInTheDocument();
-    expect(screen.getByRole("status")).toHaveTextContent("Meeting prepared locally");
+    expect(prepare).toBeDisabled();
+    expect(screen.getByText(/Browser preview does not access your microphone/)).toBeInTheDocument();
   });
 
   it("saves local settings", async () => {

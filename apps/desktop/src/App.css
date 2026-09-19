@@ -139,17 +139,32 @@ h1 { margin-bottom: 6px; color: var(--ink); font-size: clamp(29px, 3.2vw, 39px);
 .setup-card, .settings-card { display: grid; gap: 20px; padding: 25px; border: 1px solid var(--line); border-radius: 14px; background: #fff; box-shadow: 0 3px 12px rgba(28,20,36,.04); }
 .field { display: grid; gap: 8px; }
 .field span { font-size: 10px; font-weight: 700; }
-.field input, .setting-row select { width: 100%; padding: 11px 12px; border: 1px solid #ddd9e3; border-radius: 9px; background: #fbfafc; color: var(--ink); font-size: 12px; }
+.field input, .field select, .setting-row select { width: 100%; padding: 11px 12px; border: 1px solid #ddd9e3; border-radius: 9px; background: #fbfafc; color: var(--ink); font-size: 12px; }
 .capture-summary { display: flex; align-items: center; gap: 13px; padding: 15px; border-radius: 10px; color: #684eaa; background: #f6f2fc; }
 .capture-summary div { display: grid; gap: 3px; }
 .capture-summary strong { font-size: 11px; }
 .capture-summary span { color: #81798c; font-size: 9px; }
 .consent-check { display: flex; align-items: flex-start; gap: 11px; padding: 16px; border: 1px solid #e2d9f3; border-radius: 10px; background: #fbf9ff; cursor: pointer; }
 .consent-check input { margin-top: 2px; }
+.inline-check { display: flex; align-items: center; gap: 8px; color: #5f5967; font-size: 10px; font-weight: 650; }
+.inline-check input { accent-color: var(--violet); }
 .consent-check span { display: grid; gap: 4px; }
 .consent-check strong { font-size: 11px; }
 .consent-check small { color: #7e7886; font-size: 9px; line-height: 1.5; }
 .record-action { width: 100%; padding: 13px; }
+.desktop-only-note { margin: -5px 0 0; padding: 10px 12px; border-radius: 8px; color: #706a76; background: #f3f1f5; font-size: 9px; line-height: 1.5; }
+.recording-live { max-width: 620px; display: flex; flex-direction: column; align-items: center; margin: 55px auto 0; padding: 45px; border: 1px solid #eadde1; border-radius: 18px; background: #fff; box-shadow: 0 14px 45px rgba(44,26,36,.08); text-align: center; }
+.recording-pulse { width: 74px; height: 74px; display: grid; margin-bottom: 23px; place-items: center; border-radius: 50%; background: rgba(201,69,80,.09); box-shadow: 0 0 0 12px rgba(201,69,80,.045); }
+.recording-pulse span { width: 24px; height: 24px; border-radius: 50%; background: #c94550; box-shadow: 0 0 0 0 rgba(201,69,80,.35); animation: recording-pulse 1.8s infinite; }
+.recording-live.paused .recording-pulse span { border-radius: 5px; background: #9b8c64; animation: none; }
+.recording-live h1 { margin-bottom: 8px; }
+.recording-clock { color: #2e2933; font-variant-numeric: tabular-nums; font-size: 35px; letter-spacing: 1px; }
+.recording-live > p:not(.eyebrow) { max-width: 430px; margin: 12px 0 25px; color: var(--muted); font-size: 11px; line-height: 1.6; }
+.stop-button { padding: 12px 22px; border: 0; border-radius: 9px; color: #fff; background: #b93e49; cursor: pointer; font-size: 11px; font-weight: 700; box-shadow: 0 8px 20px rgba(185,62,73,.2); }
+.recording-controls { display: flex; gap: 9px; }
+.pause-button { padding: 12px 22px; border: 1px solid #dcd6e2; border-radius: 9px; color: #5f5967; background: #f7f5f8; cursor: pointer; font-size: 11px; font-weight: 700; }
+.recording-live small { margin-top: 13px; color: #99929d; font-size: 8px; }
+@keyframes recording-pulse { 65% { box-shadow: 0 0 0 13px rgba(201,69,80,0); } 100% { box-shadow: 0 0 0 0 rgba(201,69,80,0); } }
 .settings-card { max-width: 700px; }
 .setting-row { display: flex; align-items: center; justify-content: space-between; gap: 30px; padding-bottom: 18px; border-bottom: 1px solid var(--line); }
 .setting-row > div, .privacy-setting > div { display: grid; gap: 4px; }

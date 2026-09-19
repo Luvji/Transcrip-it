@@ -26,5 +26,7 @@ Meeting and processing transitions follow the transactional contract in [`workfl
 
 Meeting-owned segments, jobs, and actions cascade on meeting deletion. Deleting an individual transcript segment retains its action item but clears the evidence link. Durations and transcript offsets are integer milliseconds; timestamps are UTC ISO-8601 strings.
 
+Completed recordings store their private application-data directory and measured duration on the meeting record. See [`recording.md`](recording.md) for capture, recovery, playback, and media-deletion rules.
+
 The immutability and revision rules are documented in [`evidence-model.md`](evidence-model.md).
 Meeting creation, archival, reopening, tagging, and deletion rules are documented in [`meeting-management.md`](meeting-management.md).

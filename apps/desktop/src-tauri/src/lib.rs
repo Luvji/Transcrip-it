@@ -1,7 +1,9 @@
 pub mod database;
 pub mod engines;
+mod recording;
 
 use database::{CreateMeetingInput, Database, DatabaseStatus, MeetingRecord};
+use recording::Recorder;
 use tauri::Manager;
 
 #[tauri::command]
@@ -75,9 +77,28 @@ fn reopen_meeting(
 
 #[tauri::command]
 fn delete_meeting(
+    app: tauri::AppHandle,
     database: tauri::State<'_, Database>,
     meeting_id: String,
 ) -> Result<bool, String> {
+    if let Some(stored_path) = database
+        .meeting_recording_path(&meeting_id)
+        .map_err(|error| error.to_string())?
+    {
+        let recording_root = app
+            .path()
+            .app_data_dir()
+            .map_err(|error| error.to_string())?
+            .join("recordings");
+        let stored_path = std::path::PathBuf::from(stored_path);
+        if !stored_path.starts_with(&recording_root) {
+            return Err("Refusing to delete a recording outside application storage.".to_owned());
+        }
+        if stored_path.exists() {
+            std::fs::remove_dir_all(&stored_path)
+                .map_err(|error| format!("Could not remove recording files: {error}"))?;
+        }
+    }
     database
         .delete_meeting(&meeting_id)
         .map_err(|error| error.to_string())
@@ -89,6 +110,7 @@ pub fn run() {
         .setup(|app| {
             let database_path = app.path().app_data_dir()?.join("transcrip-it.sqlite3");
             app.manage(Database::open(&database_path)?);
+            app.manage(Recorder::new());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -99,7 +121,14 @@ pub fn run() {
             replace_meeting_tags,
             archive_meeting,
             reopen_meeting,
-            delete_meeting
+            delete_meeting,
+            recording::start_recording,
+            recording::audio_devices,
+            recording::recording_status,
+            recording::pause_recording,
+            recording::resume_recording,
+            recording::stop_recording,
+            recording::play_recording_track
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -35,6 +35,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "meeting_management",
         sql: include_str!("migrations/0004_meeting_management.sql"),
     },
+    Migration {
+        version: 5,
+        name: "recording_metadata",
+        sql: include_str!("migrations/0005_recording_metadata.sql"),
+    },
 ];
 
 mod evidence;
@@ -216,7 +221,7 @@ mod tests {
             assert!(exists, "expected table {table}");
         }
 
-        assert_eq!(current_schema_version(&connection).unwrap(), 4);
+        assert_eq!(current_schema_version(&connection).unwrap(), 5);
     }
 
     #[test]
@@ -232,7 +237,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(migration_count, 4);
+        assert_eq!(migration_count, 5);
     }
 
     #[test]
@@ -279,7 +284,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(upgraded, ("job-1".to_owned(), "queued".to_owned(), None));
-        assert_eq!(current_schema_version(&connection).unwrap(), 4);
+        assert_eq!(current_schema_version(&connection).unwrap(), 5);
     }
 
     #[test]

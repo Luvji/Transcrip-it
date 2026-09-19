@@ -19,6 +19,7 @@ pub struct MeetingRecord {
     pub state: MeetingState,
     pub source_kind: String,
     pub duration_ms: Option<i64>,
+    pub recording_path: Option<String>,
     pub created_at: String,
     pub updated_at: String,
     pub tags: Vec<String>,
@@ -120,10 +121,10 @@ impl Database {
     ) -> Result<Vec<MeetingRecord>, MeetingError> {
         let connection = self.connection()?;
         let sql = if include_archived {
-            "SELECT id, title, lifecycle_state, source_kind, duration_ms, created_at, updated_at
+            "SELECT id, title, lifecycle_state, source_kind, duration_ms, recording_path, created_at, updated_at
              FROM meetings ORDER BY updated_at DESC, id"
         } else {
-            "SELECT id, title, lifecycle_state, source_kind, duration_ms, created_at, updated_at
+            "SELECT id, title, lifecycle_state, source_kind, duration_ms, recording_path, created_at, updated_at
              FROM meetings WHERE lifecycle_state != 'archived'
              ORDER BY updated_at DESC, id"
         };
@@ -297,6 +298,59 @@ impl Database {
             .execute("DELETE FROM meetings WHERE id = ?1", [meeting_id])?
             == 1)
     }
+
+    pub fn meeting_recording_path(&self, meeting_id: &str) -> Result<Option<String>, MeetingError> {
+        Ok(self
+            .connection()?
+            .query_row(
+                "SELECT recording_path FROM meetings WHERE id = ?1",
+                [meeting_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(MeetingError::from)?
+            .flatten())
+    }
+
+    pub fn mark_recording_started(&self, meeting_id: &str) -> Result<(), MeetingError> {
+        let changed = self.connection()?.execute(
+            "UPDATE meetings
+             SET started_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                 ended_at = NULL,
+                 duration_ms = NULL,
+                 recording_path = NULL,
+                 updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+             WHERE id = ?1",
+            [meeting_id],
+        )?;
+        if changed == 1 {
+            Ok(())
+        } else {
+            Err(MeetingError::NotFound(meeting_id.to_owned()))
+        }
+    }
+
+    pub fn mark_recording_finished(
+        &self,
+        meeting_id: &str,
+        duration_ms: i64,
+        recording_path: &str,
+    ) -> Result<(), MeetingError> {
+        let changed = self.connection()?.execute(
+            "UPDATE meetings
+             SET ended_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                 duration_ms = ?1,
+                 recording_path = ?2,
+                 updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+             WHERE id = ?3",
+            params![duration_ms, recording_path, meeting_id],
+        )?;
+        if changed == 1 {
+            Ok(())
+        } else {
+            Err(MeetingError::NotFound(meeting_id.to_owned()))
+        }
+    }
 }
 
 fn apply_archive_transition(
@@ -373,7 +427,7 @@ fn find_by_creation_key(
 ) -> Result<Option<MeetingRecord>, MeetingError> {
     transaction
         .query_row(
-            "SELECT id, title, lifecycle_state, source_kind, duration_ms, created_at, updated_at
+            "SELECT id, title, lifecycle_state, source_kind, duration_ms, recording_path, created_at, updated_at
              FROM meetings WHERE creation_key = ?1",
             [creation_key],
             map_meeting_row,
@@ -388,7 +442,7 @@ fn find_meeting(
 ) -> Result<Option<MeetingRecord>, MeetingError> {
     transaction
         .query_row(
-            "SELECT id, title, lifecycle_state, source_kind, duration_ms, created_at, updated_at
+            "SELECT id, title, lifecycle_state, source_kind, duration_ms, recording_path, created_at, updated_at
              FROM meetings WHERE id = ?1",
             [meeting_id],
             map_meeting_row,
@@ -408,8 +462,9 @@ fn map_meeting_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<MeetingRecord> {
         state,
         source_kind: row.get(3)?,
         duration_ms: row.get(4)?,
-        created_at: row.get(5)?,
-        updated_at: row.get(6)?,
+        recording_path: row.get(5)?,
+        created_at: row.get(6)?,
+        updated_at: row.get(7)?,
         tags: Vec::new(),
     })
 }
