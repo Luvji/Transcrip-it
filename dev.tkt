@@ -87,8 +87,10 @@ TRANSCRIP-IT - DEVELOPMENT TRACKER
     $- [FT] [TI-0029] Create, rename, tag, archive, delete, and reopen meetings
       [DESC] Persist retry-safe meeting creation, rename, normalized tags, reversible archive/reopen, and permanent cascade deletion through Tauri commands.
       [DESC] Verified migration 4, lifecycle guards, idempotent retries, nineteen Rust tests, formatting, and warning-free Clippy output.
-    *- [FT] [TI-0030] Build the local meeting library
-    *- [FT] [TI-0031] Require consent confirmation before recording
+    $- [FT] [TI-0030] Build the local meeting library
+      [DESC] Provide a responsive local library with persisted records, search, status and tag display, archive visibility, and lifecycle actions.
+      [DESC] Verified empty and populated states, consented meeting creation, settings interaction, responsive rendering, automated UI tests, and production build.
+    @- [FT] [TI-0031] Require consent confirmation before recording
       [DESC] Show an unambiguous recording state and remind users of consent and policy responsibilities.
     *- [ENH] [TI-0032] Recover an interrupted meeting lifecycle on restart
       [DESC] Reopen unfinished recordings from the last safe checkpoint without corrupting completed work.
