@@ -34,6 +34,8 @@ describe("desktop workspace", () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getAllByRole("button", { name: "Settings" })[0]);
+    expect(screen.getByText("Install a local transcription model")).toBeInTheDocument();
+    expect(screen.getByText(/Fast English also enables the live preview/)).toBeInTheDocument();
     await user.selectOptions(screen.getByRole("combobox", { name: "Transcription quality" }), "balanced");
     await user.selectOptions(screen.getByRole("combobox", { name: "Microphone transcript source" }), "mic");
     await user.click(screen.getByRole("button", { name: "Save settings" }));

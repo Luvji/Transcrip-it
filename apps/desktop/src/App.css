@@ -212,6 +212,17 @@ h1 { margin-bottom: 6px; color: var(--ink); font-size: clamp(29px, 3.2vw, 39px);
 .recording-live small { margin-top: 13px; color: #99929d; font-size: 8px; }
 @keyframes recording-pulse { 65% { box-shadow: 0 0 0 13px rgba(201,69,80,0); } 100% { box-shadow: 0 0 0 0 rgba(201,69,80,0); } }
 .settings-card { max-width: 700px; }
+.setup-alert, .model-setup-guide { display: flex; align-items: center; gap: 13px; border: 1px solid #e3d8f5; border-radius: 11px; background: #f8f4fe; }
+.setup-alert { margin: 0 0 18px; padding: 14px 16px; color: #6d51b0; }
+.setup-alert > div, .model-setup-guide > div { display: grid; flex: 1; gap: 3px; }
+.setup-alert strong, .model-setup-guide strong { font-size: 11px; }
+.setup-alert span, .model-setup-guide p { margin: 0; color: #7d7587; font-size: 9px; line-height: 1.5; }
+.setup-alert button { padding: 8px 10px; border: 0; border-radius: 7px; color: #fff; background: #7658bd; cursor: pointer; font-size: 9px; font-weight: 700; }
+.model-setup-guide { padding: 15px; }
+.model-setup-guide .recommended-badge { width: max-content; }
+.setup-step { padding: 5px 9px; border-radius: 12px; color: #9b4650; background: #fff0f1; font-size: 8px; font-weight: 800; text-transform: uppercase; }
+.setup-step.complete { color: #397b59; background: #e5f5ec; }
+.install-progress { margin: -9px 0 0; padding: 10px 12px; border-radius: 8px; color: #684eaa; background: #f6f2fc; font-size: 9px; }
 .setting-row { display: flex; align-items: center; justify-content: space-between; gap: 30px; padding-bottom: 18px; border-bottom: 1px solid var(--line); }
 .setting-row > div, .privacy-setting > div { display: grid; gap: 4px; }
 .setting-row strong, .privacy-setting strong { font-size: 11px; }

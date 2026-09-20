@@ -232,7 +232,9 @@ TRANSCRIP-IT - DEVELOPMENT TRACKER
     *- [FT] [TI-0074] Configure models, language, storage, retention, and privacy mode
     *- [FT] [TI-0075] Show diagnostics, storage usage, model status, and job errors
       [DESC] Diagnostic output must exclude transcript content and sensitive meeting data.
-    *- [FT] [TI-0076] Guide first-run model installation and setup
+    $- [FT] [TI-0076] Guide first-run model installation and setup
+      [DESC] Settings now explains the one-time local model download, expected wait, model size, local-processing boundary, and that Fast English enables live previews. Installation exposes an explicit in-progress state and warns users to keep the app open.
+      [DESC] The home view detects a missing Fast model and offers a direct setup action without blocking recording. UI regression coverage verifies the setup guidance.
     $- [ENH] [TI-0077] Verify downloaded model integrity
       [DESC] Fast, Balanced, and Accuracy model downloads use pinned upstream SHA-1 values and are promoted from temporary storage only after successful checksum-tool execution and an exact digest match.
       [DESC] Invalid temporary downloads are deleted and never installed. Verified a known valid digest and a modified-download rejection with a focused regression, 45 Rust tests, and warning-free Clippy.
