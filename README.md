@@ -56,6 +56,8 @@ The native recording lifecycle and its Linux runtime requirements are documented
 
 Offline model installation, timestamp persistence, search, and export are documented in [`docs/architecture/transcription.md`](docs/architecture/transcription.md).
 
+The local data-flow and network boundary is documented in [`docs/architecture/privacy.md`](docs/architecture/privacy.md).
+
 Build, install, diagnostics, backup/restore, and uninstall instructions for the Ubuntu release candidate are in [`docs/release/ubuntu.md`](docs/release/ubuntu.md).
 
 Enable the versioned local hook with `git config core.hooksPath .githooks`. See [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`docs/architecture/repository-layout.md`](docs/architecture/repository-layout.md) for standards and ownership boundaries.

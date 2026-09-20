@@ -241,8 +241,10 @@ TRANSCRIP-IT - DEVELOPMENT TRACKER
 *- [EPIC] [TI-0079] Privacy, security, retention, and responsible use
   [DESC] Keep meeting content under owner control and document every data flow and optional connection.
 
-    *- [FT] [TI-0080] Make fully local processing the default
+    $- [FT] [TI-0080] Make fully local processing the default
       [DESC] Meeting content must not leave the device unless a future service is explicitly enabled.
+      [DESC] Documented the local data flow for capture, transcription, search, corrections, playback, export, and deletion. Runtime code audit found remote URLs only in the explicit Settings model-install path; that path downloads public engine/model artifacts and uploads no meeting data.
+      [DESC] Native socket inspection found no Internet connections for the running desktop process. Future sync, cloud inference, telemetry, or collaboration remains an explicit opt-in boundary.
     *- [ENH] [TI-0081] Encrypt sensitive stored content where practical
       [DESC] Protect encryption keys with the operating-system credential store.
     *- [ENH] [TI-0082] Exclude meeting content from logs and crash reports
@@ -251,7 +253,8 @@ TRANSCRIP-IT - DEVELOPMENT TRACKER
       [DESC] Product direction (Sep 20, 2026): keep audio during the current quality-validation phase, then offer deletion after a final transcript completes to reduce storage use; retain audio only when the user explicitly chooses it and explain that timestamp playback and retranscription will no longer be available.
     *- [ENH] [TI-0084] Review model and dependency licenses
       [DESC] Resolve distribution and commercial-use constraints before packaging.
-    *- [ENH] [TI-0085] Verify local-only network behavior
+    #- [ENH] [TI-0085] Verify local-only network behavior
+      [DESC] Idle native-process socket inspection found no Internet connections, and runtime code audit isolated network commands to explicit model installation. Capture/transcription under monitored network denial remains for release acceptance.
       [DESC] Audit configuration and outbound traffic to prove meeting content remains on-device by default.
 
 *- [EPIC] [TI-0086] Quality, packaging, and pilot release
