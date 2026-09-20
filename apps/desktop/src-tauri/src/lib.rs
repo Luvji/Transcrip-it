@@ -6,8 +6,40 @@ mod transcription;
 
 use database::{CreateMeetingInput, Database, DatabaseStatus, MeetingRecord};
 use recording::Recorder;
+use std::{
+    fs::{self, File, OpenOptions},
+    io,
+    os::fd::AsRawFd,
+    path::Path,
+};
 use tauri::Manager;
 use transcription::Transcriber;
+
+#[derive(Debug)]
+struct SingleInstanceGuard {
+    _file: File,
+}
+
+fn acquire_single_instance(path: &Path) -> io::Result<SingleInstanceGuard> {
+    let file = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(path)?;
+    let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+    if result != 0 {
+        let error = io::Error::last_os_error();
+        if error.kind() == io::ErrorKind::WouldBlock {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "Transcrip-it is already running",
+            ));
+        }
+        return Err(error);
+    }
+    Ok(SingleInstanceGuard { _file: file })
+}
 
 #[tauri::command]
 fn database_status(database: tauri::State<'_, Database>) -> Result<DatabaseStatus, String> {
@@ -111,9 +143,17 @@ fn delete_meeting(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let result = tauri::Builder::default()
         .setup(|app| {
-            let database_path = app.path().app_data_dir()?.join("transcrip-it.sqlite3");
+            let app_data = app.path().app_data_dir()?;
+            fs::create_dir_all(&app_data)?;
+            let instance = match acquire_single_instance(&app_data.join("transcrip-it.lock")) {
+                Ok(instance) => instance,
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => std::process::exit(0),
+                Err(error) => return Err(error.into()),
+            };
+            app.manage(instance);
+            let database_path = app_data.join("transcrip-it.sqlite3");
             let database = Database::open(&database_path)?;
             recording::recover_completed_recording_metadata(&database)
                 .map_err(std::io::Error::other)?;
@@ -153,6 +193,37 @@ pub fn run() {
             transcription::export_transcript,
             transcription::transcribe_meeting
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .run(tauri::generate_context!());
+    if let Err(error) = result {
+        if error
+            .to_string()
+            .contains("Transcrip-it is already running")
+        {
+            return;
+        }
+        panic!("error while running tauri application: {error}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn rejects_a_second_desktop_instance_lock() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "transcrip-it-instance-{}-{unique}.lock",
+            std::process::id()
+        ));
+        let first = acquire_single_instance(&path).unwrap();
+        let second = acquire_single_instance(&path).unwrap_err();
+        assert_eq!(second.kind(), io::ErrorKind::AlreadyExists);
+        drop(first);
+        fs::remove_file(path).unwrap();
+    }
 }

@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
-import App, { latestLiveTranscriptLines } from "./App";
+import App, { latestLiveTranscriptLines, recordingWarningMessages } from "./App";
 
 describe("desktop workspace", () => {
   beforeEach(() => localStorage.clear());
@@ -55,6 +55,22 @@ describe("desktop workspace", () => {
       16_000,
       24_000,
       32_000,
+    ]);
+  });
+
+  it("promotes capture health failures into visible warning messages", () => {
+    expect(recordingWarningMessages({
+      active: true,
+      meetingId: "meeting-1",
+      elapsedSeconds: 12,
+      processRunning: false,
+      paused: false,
+      levels: [],
+      storageAvailableBytes: null,
+      warnings: ["Microphone is muted."],
+    })).toEqual([
+      "Microphone is muted.",
+      "Audio capture stopped unexpectedly. Stop the recording to preserve completed chunks.",
     ]);
   });
 });

@@ -119,6 +119,7 @@ export interface RecordingStatus {
   paused: boolean;
   levels: { name: string; peak: number }[];
   storageAvailableBytes: number | null;
+  warnings: string[];
 }
 
 export interface CompletedRecording {
@@ -150,6 +151,7 @@ export interface AudioDevices {
   defaultSink: string;
   systemSource: string | null;
   sources: { name: string; monitor: boolean }[];
+  warnings: string[];
 }
 
 export const recordingApi = {
@@ -159,11 +161,11 @@ export const recordingApi = {
     return invoke("start_recording", { meetingId, consentConfirmed, options });
   },
   async devices(): Promise<AudioDevices> {
-    if (!isTauri()) return { defaultSource: "", defaultSink: "", systemSource: null, sources: [] };
+    if (!isTauri()) return { defaultSource: "", defaultSink: "", systemSource: null, sources: [], warnings: [] };
     return invoke("audio_devices");
   },
   async status(): Promise<RecordingStatus> {
-    if (!isTauri()) return { active: false, meetingId: null, elapsedSeconds: 0, processRunning: false, paused: false, levels: [], storageAvailableBytes: null };
+    if (!isTauri()) return { active: false, meetingId: null, elapsedSeconds: 0, processRunning: false, paused: false, levels: [], storageAvailableBytes: null, warnings: [] };
     return invoke("recording_status");
   },
   async recoverInterrupted(): Promise<number> {

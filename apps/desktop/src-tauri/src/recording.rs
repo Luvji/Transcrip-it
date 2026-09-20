@@ -29,6 +29,9 @@ struct ActiveRecording {
     paused_at: Option<Instant>,
     paused_total: Duration,
     pause_count: u32,
+    warnings: Vec<String>,
+    microphone_source: Option<String>,
+    system_source: Option<String>,
 }
 
 struct ActivePlayback {
@@ -50,6 +53,7 @@ pub struct RecordingStatus {
     paused: bool,
     levels: Vec<AudioLevel>,
     storage_available_bytes: Option<u64>,
+    warnings: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -81,6 +85,7 @@ pub struct AudioDevices {
     default_sink: String,
     system_source: Option<String>,
     sources: Vec<AudioSource>,
+    warnings: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -88,6 +93,14 @@ pub struct AudioDevices {
 pub struct AudioSource {
     name: String,
     monitor: bool,
+}
+
+struct CapturePlan {
+    mode: String,
+    mic_source: Option<String>,
+    system_source: Option<String>,
+    echo_cancellation: bool,
+    warnings: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -226,40 +239,55 @@ pub fn start_recording(
     }
 
     ensure_capture_dependencies()?;
+    let plan = prepare_capture_plan(&options)?;
     let mut command = Command::new("node");
     command
         .arg(script_path)
-        .args(["record", "--mode", &options.mode, "--consent-confirmed"]);
-    if options.echo_cancellation {
+        .args(["record", "--mode", &plan.mode, "--consent-confirmed"]);
+    if plan.echo_cancellation {
         command.arg("--echo-cancel");
     }
-    if let Some(source) = options
+    if let Some(source) = plan
         .mic_source
         .as_deref()
         .filter(|source| !source.is_empty())
     {
         command.args(["--mic-source", source]);
     }
-    if let Some(source) = options
+    if let Some(source) = plan
         .system_source
         .as_deref()
         .filter(|source| !source.is_empty())
     {
         command.args(["--system-source", source]);
     }
+    let diagnostics_path = app_data
+        .join("runtime")
+        .join(format!("capture-{meeting_id}.log"));
+    let diagnostics = fs::File::create(&diagnostics_path)
+        .map_err(|error| format!("Could not create capture diagnostics: {error}"))?;
     terminate_with_parent(&mut command);
     let mut child = command
         .arg("--output")
         .arg(&recording_path)
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stderr(Stdio::from(diagnostics))
         .spawn()
         .map_err(|error| format!("Could not start the audio recorder: {error}"))?;
 
     thread::sleep(Duration::from_millis(350));
     if let Some(status) = child.try_wait().map_err(|error| error.to_string())? {
+        let details = fs::read_to_string(&diagnostics_path).unwrap_or_default();
+        let detail = details
+            .lines()
+            .rev()
+            .find(|line| !line.trim().is_empty())
+            .unwrap_or("Check that the selected audio devices are available.");
+        if recording_path.exists() {
+            let _ = fs::remove_dir_all(&recording_path);
+        }
         return Err(format!(
-            "Audio capture stopped during startup with status {status}. Check that microphone and system-audio devices are available."
+            "Audio capture could not start ({status}): {detail}"
         ));
     }
 
@@ -285,6 +313,9 @@ pub fn start_recording(
         paused_at: None,
         paused_total: Duration::ZERO,
         pause_count: 0,
+        warnings: plan.warnings.clone(),
+        microphone_source: plan.mic_source,
+        system_source: plan.system_source,
     });
     Ok(RecordingStatus {
         active: true,
@@ -294,11 +325,13 @@ pub fn start_recording(
         paused: false,
         levels: Vec::new(),
         storage_available_bytes: Some(available),
+        warnings: plan.warnings,
     })
 }
 
 #[tauri::command]
 pub fn audio_devices() -> Result<AudioDevices, String> {
+    cleanup_stale_echo_cancellation()?;
     let default_source = pactl_output(&["get-default-source"])?;
     let default_sink = pactl_output(&["get-default-sink"])?;
     let sources = parse_sources(&pactl_output(&["list", "short", "sources"])?);
@@ -308,11 +341,13 @@ pub fn audio_devices() -> Result<AudioDevices, String> {
         .find(|source| source.name == expected_monitor)
         .or_else(|| sources.iter().find(|source| source.monitor))
         .map(|source| source.name.clone());
+    let warnings = audio_state_warnings(Some(default_source.as_str()), system_source.as_deref());
     Ok(AudioDevices {
         default_source,
         default_sink,
         system_source,
         sources,
+        warnings,
     })
 }
 
@@ -331,6 +366,7 @@ pub fn recording_status(recorder: tauri::State<'_, Recorder>) -> Result<Recordin
             paused: false,
             levels: Vec::new(),
             storage_available_bytes: None,
+            warnings: Vec::new(),
         });
     };
     status_for(recording)
@@ -685,6 +721,201 @@ fn ensure_capture_dependencies() -> Result<(), String> {
     Ok(())
 }
 
+fn prepare_capture_plan(options: &StartRecordingOptions) -> Result<CapturePlan, String> {
+    cleanup_stale_echo_cancellation()?;
+    let default_source = pactl_output(&["get-default-source"])?;
+    let default_sink = pactl_output(&["get-default-sink"])?;
+    let sources = parse_sources(&pactl_output(&["list", "short", "sources"])?);
+    let requested_mic = options
+        .mic_source
+        .clone()
+        .filter(|source| !source.is_empty())
+        .unwrap_or(default_source);
+    let requested_system = options
+        .system_source
+        .clone()
+        .filter(|source| {
+            !source.is_empty()
+                && !is_transcrip_it_virtual(source)
+                && sources.iter().any(|candidate| candidate.name == *source)
+        })
+        .or_else(|| {
+            let expected = format!("{default_sink}.monitor");
+            sources
+                .iter()
+                .find(|source| source.name == expected)
+                .or_else(|| sources.iter().find(|source| source.monitor))
+                .map(|source| source.name.clone())
+        });
+    let mic_available = sources
+        .iter()
+        .any(|source| !source.monitor && source.name == requested_mic);
+    let system_available = requested_system.as_ref().is_some_and(|requested| {
+        sources
+            .iter()
+            .any(|source| source.monitor && source.name == *requested)
+    });
+    let mode = effective_capture_mode(&options.mode, mic_available, system_available)?;
+    let mut warnings = Vec::new();
+    if options.mode == "both" && mode == "system" {
+        warnings.push(
+            "Microphone unavailable. Recording will continue with system audio only.".to_owned(),
+        );
+    } else if options.mode == "both" && mode == "mic" {
+        warnings.push(
+            "System audio unavailable. Recording will continue with microphone audio only."
+                .to_owned(),
+        );
+    }
+    let mic_source = (mode != "system").then_some(requested_mic);
+    let system_source = if mode != "mic" {
+        requested_system
+    } else {
+        None
+    };
+    warnings.extend(audio_state_warnings(
+        mic_source.as_deref(),
+        system_source.as_deref(),
+    ));
+    warnings.sort();
+    warnings.dedup();
+    Ok(CapturePlan {
+        echo_cancellation: options.echo_cancellation && mode == "both",
+        mode: mode.to_owned(),
+        mic_source,
+        system_source,
+        warnings,
+    })
+}
+
+fn effective_capture_mode(
+    requested: &str,
+    microphone_available: bool,
+    system_available: bool,
+) -> Result<&'static str, String> {
+    match (requested, microphone_available, system_available) {
+        ("both", true, true) => Ok("both"),
+        ("both", true, false) => Ok("mic"),
+        ("both", false, true) => Ok("system"),
+        ("both", false, false) => {
+            Err("Neither the selected microphone nor system-audio source is available.".to_owned())
+        }
+        ("mic", true, _) => Ok("mic"),
+        ("mic", false, _) => Err("The selected microphone is unavailable.".to_owned()),
+        ("system", _, true) => Ok("system"),
+        ("system", _, false) => Err("The selected system-audio source is unavailable.".to_owned()),
+        _ => Err("Capture mode must be mic, system, or both.".to_owned()),
+    }
+}
+
+fn is_transcrip_it_virtual(name: &str) -> bool {
+    name.starts_with("transcrip_it_aec_source_") || name.starts_with("transcrip_it_aec_sink_")
+}
+
+fn cleanup_stale_echo_cancellation() -> Result<(), String> {
+    let modules = pactl_output(&["list", "short", "modules"])?;
+    let stale_module_ids = modules
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.split('\t');
+            let id = fields.next()?;
+            let module = fields.next()?;
+            let arguments = fields.next().unwrap_or_default();
+            (module == "module-echo-cancel" && arguments.contains("transcrip_it_aec_"))
+                .then_some(id.to_owned())
+        })
+        .collect::<Vec<_>>();
+    if stale_module_ids.is_empty() {
+        return Ok(());
+    }
+
+    let sinks = parse_short_names(&pactl_output(&["list", "short", "sinks"])?);
+    let sources = parse_short_names(&pactl_output(&["list", "short", "sources"])?);
+    let fallback_sink = sinks
+        .iter()
+        .find(|(_, name)| !is_transcrip_it_virtual(name))
+        .map(|(_, name)| name.clone());
+    let fallback_source = sources
+        .iter()
+        .find(|(_, name)| !is_transcrip_it_virtual(name) && !name.ends_with(".monitor"))
+        .map(|(_, name)| name.clone());
+
+    if let Some(sink) = fallback_sink.as_deref() {
+        if pactl_output(&["get-default-sink"])
+            .is_ok_and(|current| is_transcrip_it_virtual(&current))
+        {
+            pactl_output(&["set-default-sink", sink])?;
+        }
+        let virtual_sink_ids = sinks
+            .iter()
+            .filter(|(_, name)| is_transcrip_it_virtual(name))
+            .map(|(id, _)| id.as_str())
+            .collect::<Vec<_>>();
+        for line in pactl_output(&["list", "short", "sink-inputs"])?.lines() {
+            let fields = line.split('\t').collect::<Vec<_>>();
+            if fields.len() > 1 && virtual_sink_ids.contains(&fields[1]) {
+                pactl_output(&["move-sink-input", fields[0], sink])?;
+            }
+        }
+    }
+    if let Some(source) = fallback_source.as_deref() {
+        if pactl_output(&["get-default-source"])
+            .is_ok_and(|current| is_transcrip_it_virtual(&current))
+        {
+            pactl_output(&["set-default-source", source])?;
+        }
+    }
+    for module_id in stale_module_ids {
+        pactl_output(&["unload-module", &module_id])?;
+    }
+    Ok(())
+}
+
+fn parse_short_names(output: &str) -> Vec<(String, String)> {
+    output
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.split('\t');
+            Some((fields.next()?.to_owned(), fields.next()?.to_owned()))
+        })
+        .collect()
+}
+
+fn audio_state_warnings(
+    microphone_source: Option<&str>,
+    system_source: Option<&str>,
+) -> Vec<String> {
+    let mut warnings = Vec::new();
+    if let Some(source) = microphone_source {
+        match pactl_output(&["get-source-mute", source]) {
+            Ok(value) if value.ends_with("yes") => warnings.push(
+                "Microphone is muted. System audio can still be recorded; unmute to include your voice."
+                    .to_owned(),
+            ),
+            Err(_) => warnings.push(
+                "Microphone is disconnected. Other available audio will continue recording."
+                    .to_owned(),
+            ),
+            _ => {}
+        }
+    }
+    if let Some(source) = system_source {
+        let sink = source.strip_suffix(".monitor").unwrap_or(source);
+        match pactl_output(&["get-sink-mute", sink]) {
+            Ok(value) if value.ends_with("yes") => warnings.push(
+                "Speakers are muted. System audio capture will continue, but playback is inaudible."
+                    .to_owned(),
+            ),
+            Err(_) => warnings.push(
+                "Speaker output is disconnected. Microphone audio will continue recording."
+                    .to_owned(),
+            ),
+            _ => {}
+        }
+    }
+    warnings
+}
+
 fn pactl_output(arguments: &[&str]) -> Result<String, String> {
     let output = Command::new("pactl")
         .args(arguments)
@@ -722,6 +953,7 @@ fn parse_sources(output: &str) -> Vec<AudioSource> {
     output
         .lines()
         .filter_map(|line| line.split('\t').nth(1))
+        .filter(|name| !is_transcrip_it_virtual(name))
         .map(|name| AudioSource {
             name: name.to_owned(),
             monitor: name.ends_with(".monitor"),
@@ -824,6 +1056,13 @@ fn status_for(recording: &mut ActiveRecording) -> Result<RecordingStatus, String
         .map_err(|error| error.to_string())?
         .is_none();
     let snapshot = read_levels(&recording.output_path, recording.paused_at.is_some());
+    let mut warnings = recording.warnings.clone();
+    warnings.extend(audio_state_warnings(
+        recording.microphone_source.as_deref(),
+        recording.system_source.as_deref(),
+    ));
+    warnings.sort();
+    warnings.dedup();
     Ok(RecordingStatus {
         active: true,
         meeting_id: Some(recording.meeting_id.clone()),
@@ -834,6 +1073,7 @@ fn status_for(recording: &mut ActiveRecording) -> Result<RecordingStatus, String
             .as_ref()
             .map_or_else(Vec::new, |value| value.tracks.clone()),
         storage_available_bytes: snapshot.and_then(|value| value.storage_available_bytes),
+        warnings,
     })
 }
 
@@ -985,10 +1225,21 @@ mod tests {
     #[test]
     fn parses_microphone_and_monitor_sources() {
         let sources = parse_sources(
-            "1\talsa_input.usb-mic\tmodule\ts16le\n2\talsa_output.pci.monitor\tmodule\ts16le",
+            "1\talsa_input.usb-mic\tmodule\ts16le\n2\talsa_output.pci.monitor\tmodule\ts16le\n3\ttranscrip_it_aec_sink_42.monitor\tmodule\tfloat32le",
         );
         assert_eq!(sources.len(), 2);
         assert!(!sources[0].monitor);
         assert!(sources[1].monitor);
+    }
+
+    #[test]
+    fn combined_capture_falls_back_to_the_available_source() {
+        assert_eq!(
+            effective_capture_mode("both", false, true).unwrap(),
+            "system"
+        );
+        assert_eq!(effective_capture_mode("both", true, false).unwrap(), "mic");
+        assert!(effective_capture_mode("both", false, false).is_err());
+        assert!(effective_capture_mode("mic", false, true).is_err());
     }
 }
