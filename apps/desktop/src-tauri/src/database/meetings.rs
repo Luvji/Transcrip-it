@@ -23,6 +23,7 @@ pub struct MeetingRecord {
     pub created_at: String,
     pub updated_at: String,
     pub tags: Vec<String>,
+    pub participant_labels: Vec<String>,
     pub transcript_segment_count: i64,
 }
 
@@ -137,6 +138,7 @@ impl Database {
         for row in rows {
             let mut meeting = row?;
             meeting.tags = meeting_tags(&connection, &meeting.id)?;
+            meeting.participant_labels = participant_labels(&connection, &meeting.id)?;
             meetings.push(meeting);
         }
         Ok(meetings)
@@ -469,7 +471,7 @@ fn find_by_creation_key(
     transaction: &Transaction<'_>,
     creation_key: &str,
 ) -> Result<Option<MeetingRecord>, MeetingError> {
-    transaction
+    let mut meeting = transaction
         .query_row(
             "SELECT id, title, lifecycle_state, source_kind, duration_ms, recording_path, created_at, updated_at,
                 (SELECT COUNT(*) FROM transcript_segments WHERE meeting_id = meetings.id)
@@ -478,7 +480,12 @@ fn find_by_creation_key(
             map_meeting_row,
         )
         .optional()
-        .map_err(MeetingError::from)
+        .map_err(MeetingError::from)?;
+    if let Some(meeting) = meeting.as_mut() {
+        meeting.tags = meeting_tags(transaction, &meeting.id)?;
+        meeting.participant_labels = participant_labels(transaction, &meeting.id)?;
+    }
+    Ok(meeting)
 }
 
 fn find_meeting(
@@ -512,6 +519,7 @@ fn map_meeting_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<MeetingRecord> {
         created_at: row.get(6)?,
         updated_at: row.get(7)?,
         tags: Vec::new(),
+        participant_labels: Vec::new(),
         transcript_segment_count: row.get(8)?,
     })
 }
@@ -526,6 +534,21 @@ fn meeting_tags(
         .query_map([meeting_id], |row| row.get(0))?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(tags)
+}
+
+fn participant_labels(
+    connection: &rusqlite::Connection,
+    meeting_id: &str,
+) -> Result<Vec<String>, rusqlite::Error> {
+    let mut statement = connection.prepare(
+        "SELECT DISTINCT speaker_label FROM transcript_segments
+         WHERE meeting_id = ?1 AND speaker_label IS NOT NULL AND trim(speaker_label) != ''
+         ORDER BY speaker_label COLLATE NOCASE",
+    )?;
+    let labels = statement
+        .query_map([meeting_id], |row| row.get(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(labels)
 }
 
 fn normalize_tags(tags: &[String]) -> Vec<String> {
@@ -545,6 +568,7 @@ fn normalize_tags(tags: &[String]) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::database::TranscriptSegmentInput;
 
     fn input() -> CreateMeetingInput {
         CreateMeetingInput {
@@ -584,6 +608,38 @@ mod tests {
         assert_eq!(meeting.title, "Planning");
         assert_eq!(tags, vec!["weekly", "Work"]);
         assert_eq!(meeting.tags, tags);
+    }
+
+    #[test]
+    fn lists_distinct_participant_labels_for_filters() {
+        let database = Database::open_in_memory().unwrap();
+        database.create_meeting(&input()).unwrap();
+        database
+            .store_source_transcript(
+                "meeting-1",
+                &[
+                    TranscriptSegmentInput {
+                        start_ms: 0,
+                        end_ms: 1_000,
+                        speaker_label: Some("Alice".to_owned()),
+                        source_track: Some("mic".to_owned()),
+                        text: "Opening".to_owned(),
+                    },
+                    TranscriptSegmentInput {
+                        start_ms: 1_000,
+                        end_ms: 2_000,
+                        speaker_label: Some("Bob".to_owned()),
+                        source_track: Some("system".to_owned()),
+                        text: "Reply".to_owned(),
+                    },
+                ],
+            )
+            .unwrap();
+
+        assert_eq!(
+            database.list_meetings(false).unwrap()[0].participant_labels,
+            vec!["Alice", "Bob"]
+        );
     }
 
     #[test]

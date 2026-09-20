@@ -219,7 +219,9 @@ TRANSCRIP-IT - DEVELOPMENT TRACKER
 
     $- [FT] [TI-0069] Search transcript text with SQLite full-text search
       [DESC] Index source segments with local SQLite FTS5 and surface matching meeting, timestamp, and context snippets.
-    *- [FT] [TI-0070] Filter meetings by date, participant label, tag, and status
+    $- [FT] [TI-0070] Filter meetings by date, participant label, tag, and status
+      [DESC] Added combinable date, lifecycle status, normalized tag, and distinct transcript participant-label filters with result counts, a clear action, and an explicit no-match state.
+      [DESC] Meeting list records now expose sorted distinct speaker labels without a schema migration. Verified database label aggregation, filter matching, 44 Rust tests, six frontend tests, warning-free Clippy, repository checks, and the production build.
     *- [FT] [TI-0071] Export approved transcripts and notes to Markdown and plain text
     *- [ENH] [TI-0072] Retrieve relevant evidence for later meeting questions
       [DESC] Use matching segments instead of resending a complete transcript to the local model.

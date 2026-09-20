@@ -19,6 +19,7 @@ export interface Meeting {
   createdAt: string;
   updatedAt: string;
   tags: string[];
+  participantLabels: string[];
   transcriptSegmentCount: number;
 }
 
@@ -70,6 +71,7 @@ export const meetingApi = {
       createdAt: timestamp,
       updatedAt: timestamp,
       tags: [],
+      participantLabels: [],
       transcriptSegmentCount: 0,
     };
     saveBrowserMeetings([meeting, ...browserMeetings()]);

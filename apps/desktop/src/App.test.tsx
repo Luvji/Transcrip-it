@@ -1,7 +1,8 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
-import App, { latestLiveTranscriptLines, recordingWarningMessages } from "./App";
+import App, { latestLiveTranscriptLines, meetingMatchesFilters, recordingWarningMessages } from "./App";
+import type { Meeting } from "./meetingApi";
 
 describe("desktop workspace", () => {
   beforeEach(() => localStorage.clear());
@@ -72,5 +73,26 @@ describe("desktop workspace", () => {
       "Microphone is muted.",
       "Audio capture stopped unexpectedly. Stop the recording to preserve completed chunks.",
     ]);
+  });
+
+  it("filters meetings by date, participant, tag, and status", () => {
+    const now = Date.parse("2026-09-20T12:00:00Z");
+    const meeting: Meeting = {
+      id: "meeting-1",
+      title: "Product review",
+      state: "ready",
+      sourceKind: "recording",
+      durationMs: 60_000,
+      recordingPath: "/recording",
+      createdAt: "2026-09-18T12:00:00Z",
+      updatedAt: "2026-09-18T12:01:00Z",
+      tags: ["planning"],
+      participantLabels: ["Alice"],
+      transcriptSegmentCount: 2,
+    };
+
+    expect(meetingMatchesFilters(meeting, { query: "alice", status: "ready", tag: "planning", participant: "Alice", dateRange: "7" }, now)).toBe(true);
+    expect(meetingMatchesFilters(meeting, { query: "", status: "failed", tag: "", participant: "", dateRange: "all" }, now)).toBe(false);
+    expect(meetingMatchesFilters(meeting, { query: "", status: "all", tag: "", participant: "", dateRange: "today" }, now)).toBe(false);
   });
 });
