@@ -155,6 +155,10 @@ export const recordingApi = {
     if (!isTauri()) return { active: false, meetingId: null, elapsedSeconds: 0, processRunning: false, paused: false, levels: [], storageAvailableBytes: null };
     return invoke("recording_status");
   },
+  async recoverInterrupted(): Promise<number> {
+    if (!isTauri()) return 0;
+    return invoke("recover_interrupted_recordings");
+  },
   async stop(meetingId: string): Promise<CompletedRecording> {
     if (!isTauri()) throw new Error("Audio capture is available in the Transcrip-it desktop app.");
     return invoke("stop_recording", { meetingId });
@@ -207,6 +211,7 @@ export interface LiveTranscriptLine {
   trackId: "mic" | "system";
   speakerLabel: string;
   chunkIndex: number;
+  windowIndex: number;
   startMs: number;
   text: string;
 }

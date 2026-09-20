@@ -298,6 +298,32 @@ pub fn recording_status(recorder: tauri::State<'_, Recorder>) -> Result<Recordin
 }
 
 #[tauri::command]
+pub fn recover_interrupted_recordings(
+    database: tauri::State<'_, Database>,
+    recorder: tauri::State<'_, Recorder>,
+) -> Result<usize, String> {
+    let mut active = recorder
+        .active
+        .lock()
+        .map_err(|_| "recording state lock is poisoned".to_owned())?;
+    if let Some(recording) = active.as_mut() {
+        if recording
+            .child
+            .try_wait()
+            .map_err(|error| error.to_string())?
+            .is_none()
+        {
+            return Ok(0);
+        }
+        active.take();
+    }
+    drop(active);
+    database
+        .recover_interrupted_meetings()
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub fn pause_recording(
     database: tauri::State<'_, Database>,
     recorder: tauri::State<'_, Recorder>,

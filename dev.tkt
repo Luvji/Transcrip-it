@@ -246,6 +246,14 @@ TRANSCRIP-IT - DEVELOPMENT TRACKER
 
     #- [FT] [TI-0096] Add live transcription after post-processing stabilizes
       [DESC] Added an on-device provisional preview from recoverable microphone and system chunks; native recording validation remains.
+      [DESC] Native test evidence (Sep 20, 2026, meeting "test1"): preview updates stopped after the first intervals; leaving Record for Settings or Meetings discarded already captured preview text and returned to "Listening for speech".
+      [DESC] Native test evidence: at 05:00 the preview invented repetitive microphone and meeting-audio phrases that were not spoken, including repeated "If you are able to do it" and "All right" text.
+      [DESC] Native test evidence: the GTK shell became unresponsive around 07:38 while live preview inference was running. The preview command synchronously ran FFmpeg and Whisper over growing chunks, blocking desktop command handling.
+      [DESC] Interruption evidence: "test1" remained in recording state after the crash although its recording directory preserved 20 microphone, raw-microphone, and system WAV chunks; its incomplete manifest exposed no recovery/transcription action in the library.
+      [DESC] Recovery verification exposed a second-interruption defect: fixed idempotency keys replayed the first recovery transition and could leave a later interrupted transcription stranded in processing; recovery keys now include the meeting revision.
+      [DESC] Acceptance: bound preview work to short windows off the command thread, retain preview lines across navigation, suppress low-energy/repetitive hallucinations, and automatically expose interrupted audio for playback and final transcription.
+      [DESC] Implemented bounded 15-second preview windows on blocking workers, session-owned navigation-safe preview state, PCM speech-energy gating, repeated-phrase rejection, asynchronous final transcription, and revision-safe interrupted-job recovery.
+      [DESC] Verified with the preserved test1 audio (expected opening sentence in 2.88 seconds), 29 Rust tests, Clippy with warnings denied, frontend tests/build, SQLite integrity, and a native recovery launch; a fresh multi-minute recording remains for native acceptance.
     *- [FT] [TI-0097] Add Windows and macOS platform support
       [DESC] Begin after the Linux workflow and audio interfaces stabilize.
     *- [FT] [TI-0098] Add platform meeting bots

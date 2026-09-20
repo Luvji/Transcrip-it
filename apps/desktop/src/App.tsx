@@ -66,42 +66,11 @@ function RecordSetup({ onStart, onError }: { onStart: (title: string, options: S
 }
 
 const clockLabel = (seconds: number) => `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
-function ActiveRecording({ meeting, status, onStop, onTogglePause }: { meeting: Meeting; status: RecordingStatus; onStop: () => Promise<void>; onTogglePause: () => Promise<void> }) {
+function ActiveRecording({ meeting, status, liveLines, liveError, previewing, onStop, onTogglePause }: { meeting: Meeting; status: RecordingStatus; liveLines: LiveTranscriptLine[]; liveError: string; previewing: boolean; onStop: () => Promise<void>; onTogglePause: () => Promise<void> }) {
   const [busy, setBusy] = useState(false);
-  const [liveLines, setLiveLines] = useState<LiveTranscriptLine[]>([]);
-  const [liveError, setLiveError] = useState("");
-  const [previewing, setPreviewing] = useState(false);
-  useEffect(() => {
-    let cancelled = false;
-    let timer = 0;
-    const refresh = async () => {
-      if (cancelled) return;
-      setPreviewing(true);
-      try {
-        const preview = await transcriptionApi.livePreview(meeting.id);
-        if (!cancelled) {
-          setLiveLines((existing) => {
-            const merged = new Map(existing.map((line) => [`${line.trackId}:${line.chunkIndex}`, line]));
-            preview.lines.forEach((line) => merged.set(`${line.trackId}:${line.chunkIndex}`, line));
-            return [...merged.values()].sort((left, right) => left.startMs - right.startMs || left.trackId.localeCompare(right.trackId));
-          });
-          setLiveError("");
-        }
-      } catch (error) {
-        if (!cancelled) setLiveError(String(error));
-      } finally {
-        if (!cancelled) {
-          setPreviewing(false);
-          timer = window.setTimeout(() => void refresh(), 12_000);
-        }
-      }
-    };
-    timer = window.setTimeout(() => void refresh(), 5_000);
-    return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [meeting.id]);
   const stop = async () => { setBusy(true); try { await onStop(); } finally { setBusy(false); } };
   const togglePause = async () => { setBusy(true); try { await onTogglePause(); } finally { setBusy(false); } };
-  return <section className={`recording-live${status.paused ? " paused" : ""}`} aria-live="polite"><div className="recording-pulse"><span /></div><p className="eyebrow">{status.paused ? "RECORDING PAUSED" : "RECORDING NOW"}</p><h1>{meeting.title}</h1><strong className="recording-clock">{clockLabel(status.elapsedSeconds)}</strong><p>{status.paused ? "Audio capture is paused. Resume when the conversation continues." : "Selected audio sources are being saved in recoverable local chunks."}</p>{status.levels.length > 0 && <div className="level-list" aria-label="Live audio levels">{status.levels.filter((level) => level.name !== "mic_raw").map((level) => <div className="level-row" key={level.name}><span>{level.name === "mic" ? "Microphone" : "System"}</span><i><b style={{ width: `${Math.max(2, Math.round(level.peak * 100))}%` }} /></i></div>)}</div>}{status.storageAvailableBytes !== null && status.storageAvailableBytes < 512 * 1024 * 1024 && <div className="message error">Storage is running low ({Math.round(status.storageAvailableBytes / 1024 / 1024)} MB free). Capture will stop safely at 128 MB.</div>}{!status.processRunning && <div className="message error">An audio device disconnected or the capture process stopped. Stop now to preserve completed chunks.</div>}<section className="live-transcript" aria-label="Live transcript preview"><div className="live-transcript-heading"><div><span className="status-dot" /><strong>Live transcript</strong></div><small>{previewing ? "Updating locally…" : "Fast preview · final transcript is reprocessed after stop"}</small></div>{liveError ? <p className="live-transcript-placeholder">{liveError}</p> : liveLines.length === 0 ? <p className="live-transcript-placeholder">Listening for speech…</p> : <div className="live-transcript-lines">{liveLines.map((line) => <article key={`${line.trackId}:${line.chunkIndex}`}><span>{timestampLabel(line.startMs)} · {line.speakerLabel}</span><p>{line.text}</p></article>)}</div>}</section><div className="recording-controls"><button className="pause-button" type="button" disabled={busy} onClick={() => void togglePause()}>{status.paused ? "Resume" : "Pause"}</button><button className="stop-button" type="button" disabled={busy} onClick={() => void stop()}>{busy ? "Working safely…" : "Stop recording"}</button></div><small>Stopping may take a few seconds while WAV headers and the session manifest are finalized.</small></section>;
+  return <section className={`recording-live${status.paused ? " paused" : ""}`} aria-live="polite"><div className="recording-pulse"><span /></div><p className="eyebrow">{status.paused ? "RECORDING PAUSED" : "RECORDING NOW"}</p><h1>{meeting.title}</h1><strong className="recording-clock">{clockLabel(status.elapsedSeconds)}</strong><p>{status.paused ? "Audio capture is paused. Resume when the conversation continues." : "Selected audio sources are being saved in recoverable local chunks."}</p>{status.levels.length > 0 && <div className="level-list" aria-label="Live audio levels">{status.levels.filter((level) => level.name !== "mic_raw").map((level) => <div className="level-row" key={level.name}><span>{level.name === "mic" ? "Microphone" : "System"}</span><i><b style={{ width: `${Math.max(2, Math.round(level.peak * 100))}%` }} /></i></div>)}</div>}{status.storageAvailableBytes !== null && status.storageAvailableBytes < 512 * 1024 * 1024 && <div className="message error">Storage is running low ({Math.round(status.storageAvailableBytes / 1024 / 1024)} MB free). Capture will stop safely at 128 MB.</div>}{!status.processRunning && <div className="message error">An audio device disconnected or the capture process stopped. Stop now to preserve completed chunks.</div>}<section className="live-transcript" aria-label="Live transcript preview"><div className="live-transcript-heading"><div><span className="status-dot" /><strong>Live transcript</strong></div><small>{previewing ? "Updating locally…" : "Fast preview · final transcript is reprocessed after stop"}</small></div>{liveError ? <p className="live-transcript-placeholder">{liveError}</p> : liveLines.length === 0 ? <p className="live-transcript-placeholder">Listening for speech…</p> : <div className="live-transcript-lines">{liveLines.map((line) => <article key={`${line.trackId}:${line.chunkIndex}:${line.windowIndex}`}><span>{timestampLabel(line.startMs)} · {line.speakerLabel}</span><p>{line.text}</p></article>)}</div>}</section><div className="recording-controls"><button className="pause-button" type="button" disabled={busy} onClick={() => void togglePause()}>{status.paused ? "Resume" : "Pause"}</button><button className="stop-button" type="button" disabled={busy} onClick={() => void stop()}>{busy ? "Working safely…" : "Stop recording"}</button></div><small>Stopping may take a few seconds while WAV headers and the session manifest are finalized.</small></section>;
 }
 
 const timestampLabel = (milliseconds: number) => `${String(Math.floor(milliseconds / 60_000)).padStart(2, "0")}:${String(Math.floor(milliseconds / 1000) % 60).padStart(2, "0")}`;
@@ -133,16 +102,46 @@ function SettingsView({ onSaved, onError }: { onSaved: () => void; onError: (val
 }
 
 function App() {
-  const [activeView, setActiveView] = useState<View>("home"); const [meetings, setMeetings] = useState<Meeting[]>([]); const [includeArchived, setIncludeArchived] = useState(false); const [search, setSearch] = useState(""); const [transcriptMatches, setTranscriptMatches] = useState<TranscriptSearchResult[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState(""); const [notice, setNotice] = useState(""); const [recordingMeeting, setRecordingMeeting] = useState<Meeting | null>(null); const [recordingStatus, setRecordingStatus] = useState<RecordingStatus | null>(null); const [transcribingId, setTranscribingId] = useState<string | null>(null); const [openTranscript, setOpenTranscript] = useState<{ meeting: Meeting; segments: TranscriptSegment[] } | null>(null);
+  const [activeView, setActiveView] = useState<View>("home"); const [meetings, setMeetings] = useState<Meeting[]>([]); const [includeArchived, setIncludeArchived] = useState(false); const [search, setSearch] = useState(""); const [transcriptMatches, setTranscriptMatches] = useState<TranscriptSearchResult[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState(""); const [notice, setNotice] = useState(""); const [recordingMeeting, setRecordingMeeting] = useState<Meeting | null>(null); const [recordingStatus, setRecordingStatus] = useState<RecordingStatus | null>(null); const [liveLines, setLiveLines] = useState<LiveTranscriptLine[]>([]); const [liveError, setLiveError] = useState(""); const [previewing, setPreviewing] = useState(false); const [transcribingId, setTranscribingId] = useState<string | null>(null); const [openTranscript, setOpenTranscript] = useState<{ meeting: Meeting; segments: TranscriptSegment[] } | null>(null);
   const loadMeetings = useCallback(async () => { setLoading(true); try { setMeetings(await meetingApi.list(includeArchived)); setError(""); } catch (reason) { setError(String(reason)); } finally { setLoading(false); } }, [includeArchived]);
   useEffect(() => { void loadMeetings(); }, [loadMeetings]);
-  useEffect(() => { if (!recordingApi.available) return; void recordingApi.status().then(async (status) => { if (status.active && status.meetingId) { const found = (await meetingApi.list(true)).find((meeting) => meeting.id === status.meetingId); if (found) { setRecordingMeeting(found); setRecordingStatus(status); setActiveView("record"); } } }).catch((reason) => setError(String(reason))); }, []);
+  useEffect(() => { if (!recordingApi.available) return; void recordingApi.status().then(async (status) => { if (status.active && status.meetingId) { const found = (await meetingApi.list(true)).find((meeting) => meeting.id === status.meetingId); if (found) { setRecordingMeeting(found); setRecordingStatus(status); setActiveView("record"); } return; } const recovered = await recordingApi.recoverInterrupted(); if (recovered > 0) { setNotice(`${recovered} interrupted recording${recovered === 1 ? " was" : "s were"} recovered. Its safe audio can now be played or transcribed.`); await loadMeetings(); } }).catch((reason) => setError(String(reason))); }, []);
   useEffect(() => { if (!recordingMeeting) return; const timer = window.setInterval(() => { void recordingApi.status().then(setRecordingStatus).catch((reason) => setError(String(reason))); }, 1000); return () => window.clearInterval(timer); }, [recordingMeeting]);
+  useEffect(() => {
+    if (!recordingMeeting) return;
+    let cancelled = false;
+    let timer = 0;
+    const meetingId = recordingMeeting.id;
+    const refresh = async () => {
+      if (cancelled) return;
+      setPreviewing(true);
+      try {
+        const preview = await transcriptionApi.livePreview(meetingId);
+        if (!cancelled) {
+          setLiveLines((existing) => {
+            const merged = new Map(existing.map((line) => [`${line.trackId}:${line.chunkIndex}:${line.windowIndex}`, line]));
+            preview.lines.forEach((line) => merged.set(`${line.trackId}:${line.chunkIndex}:${line.windowIndex}`, line));
+            return [...merged.values()].sort((left, right) => left.startMs - right.startMs || left.trackId.localeCompare(right.trackId));
+          });
+          setLiveError("");
+        }
+      } catch (reason) {
+        if (!cancelled) setLiveError(String(reason));
+      } finally {
+        if (!cancelled) {
+          setPreviewing(false);
+          timer = window.setTimeout(() => void refresh(), 5_000);
+        }
+      }
+    };
+    timer = window.setTimeout(() => void refresh(), 3_000);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [recordingMeeting?.id]);
   useEffect(() => { const timer = window.setTimeout(() => { void transcriptionApi.search(search).then(setTranscriptMatches).catch((reason) => setError(String(reason))); }, 180); return () => window.clearTimeout(timer); }, [search]);
   const filtered = useMemo(() => { const query = search.trim().toLowerCase(); return query ? meetings.filter((meeting) => `${meeting.title} ${meeting.tags.join(" ")}`.toLowerCase().includes(query)) : meetings; }, [meetings, search]);
   const goToRecord = () => setActiveView("record");
-  const startRecording = async (title: string, options: StartRecordingOptions) => { const id = crypto.randomUUID(); const meeting = await meetingApi.create({ id, idempotencyKey: `create-${id}`, title }); try { const status = await recordingApi.start(id, true, options); setRecordingMeeting({ ...meeting, state: "recording" }); setRecordingStatus(status); await loadMeetings(); } catch (reason) { await loadMeetings(); throw reason; } };
-  const stopRecording = async () => { if (!recordingMeeting) return; const completed = await recordingApi.stop(recordingMeeting.id); setRecordingMeeting(null); setRecordingStatus(null); await loadMeetings(); setNotice(`Recording saved locally (${durationLabel(completed.durationMs)}).`); setActiveView("meetings"); };
+  const startRecording = async (title: string, options: StartRecordingOptions) => { const id = crypto.randomUUID(); const meeting = await meetingApi.create({ id, idempotencyKey: `create-${id}`, title }); try { const status = await recordingApi.start(id, true, options); setLiveLines([]); setLiveError(""); setRecordingMeeting({ ...meeting, state: "recording" }); setRecordingStatus(status); await loadMeetings(); } catch (reason) { await loadMeetings(); throw reason; } };
+  const stopRecording = async () => { if (!recordingMeeting) return; const completed = await recordingApi.stop(recordingMeeting.id); setRecordingMeeting(null); setRecordingStatus(null); setLiveLines([]); setLiveError(""); await loadMeetings(); setNotice(`Recording saved locally (${durationLabel(completed.durationMs)}).`); setActiveView("meetings"); };
   const togglePause = async () => { if (!recordingMeeting || !recordingStatus) return; const status = recordingStatus.paused ? await recordingApi.resume(recordingMeeting.id) : await recordingApi.pause(recordingMeeting.id); setRecordingStatus(status); };
   const viewTranscript = async (meeting: Meeting) => { try { setOpenTranscript({ meeting, segments: await transcriptionApi.list(meeting.id) }); } catch (reason) { setError(String(reason)); } };
   const transcribe = async (meeting: Meeting) => { setTranscribingId(meeting.id); setNotice("Transcribing each audio channel locally. Audio and text stay on this device."); try { const segments = await transcriptionApi.transcribe(meeting.id, selectedTranscriptionPack()); await loadMeetings(); setOpenTranscript({ meeting: { ...meeting, transcriptSegmentCount: segments.length }, segments }); setNotice("Local transcription complete with grouped passages and channel labels."); } catch (reason) { setError(String(reason)); await loadMeetings(); } finally { setTranscribingId(null); } };
@@ -154,7 +153,7 @@ function App() {
       <div className="content">{error && <div className="message error" role="alert">{error}<button type="button" onClick={() => setError("")}>Dismiss</button></div>}{notice && <div className="message success" role="status">{notice}<button type="button" onClick={() => setNotice("")}>Dismiss</button></div>}
         {activeView === "home" && <><section className="hero-row"><div><p className="eyebrow">YOUR MEETING WORKSPACE</p><h1>Good morning</h1><p className="hero-copy">Capture the conversation. Keep the important parts.</p></div><button className="primary-button" type="button" onClick={goToRecord}><Icon name="plus" size={18} /> New recording</button></section><section className="metric-grid" aria-label="Workspace summary"><article className="metric-card"><div className="metric-icon violet"><Icon name="clock" /></div><div><span>MEETINGS</span><strong>{meetings.filter((meeting) => meeting.state !== "archived").length}</strong><small>Local</small></div></article><article className="metric-card"><div className="metric-icon blue"><Icon name="record" /></div><div><span>RECORDED</span><strong>{recordedMinutes}m</strong><small>All time</small></div></article><article className="metric-card"><div className="metric-icon amber"><Icon name="sparkles" /></div><div><span>READY</span><strong>{meetings.filter((meeting) => meeting.state === "ready").length}</strong><small>Meetings</small></div></article></section><section className="headset-card"><div className="headset-art"><Icon name="headphones" size={29} /></div><div className="headset-copy"><span className="recommended-badge">RECOMMENDED</span><h2>Use a headset for the clearest transcript</h2><p>A headset helps separate your voice from meeting audio and improves speaker accuracy.</p></div><button className="text-button" type="button" onClick={() => setActiveView("settings")}>Audio settings <Icon name="chevron" size={16} /></button></section><section className="section-block"><div className="section-heading"><div><h2>Recent meetings</h2><p>Your latest local meetings.</p></div><button className="text-button" type="button" onClick={() => setActiveView("meetings")}>View all <Icon name="chevron" size={16} /></button></div>{loading ? <p className="loading-copy">Loading your library…</p> : meetings.length === 0 ? <EmptyLibrary onRecord={goToRecord} /> : <div className="meeting-list">{meetings.slice(0, 3).map((meeting) => <MeetingCard key={meeting.id} meeting={meeting} onChanged={loadMeetings} onError={setError} />)}</div>}</section></>}
         {activeView === "meetings" && <section className="page-view"><div className="page-heading"><div><p className="eyebrow">LOCAL LIBRARY</p><h1>Meetings</h1><p>Organize, archive, and permanently remove recordings stored on this device.</p></div><button className="primary-button" type="button" onClick={goToRecord}><Icon name="plus" size={18} /> New recording</button></div><label className="archive-toggle"><input type="checkbox" checked={includeArchived} onChange={(event) => setIncludeArchived(event.target.checked)} /> Show archived meetings</label>{loading ? <p className="loading-copy">Loading your library…</p> : filtered.length === 0 ? <EmptyLibrary onRecord={goToRecord} /> : <div className="meeting-list">{filtered.map((meeting) => <MeetingCard key={meeting.id} meeting={meeting} onChanged={loadMeetings} onError={setError} />)}</div>}</section>}
-        {activeView === "record" && (recordingMeeting && recordingStatus ? <ActiveRecording meeting={recordingMeeting} status={recordingStatus} onStop={stopRecording} onTogglePause={togglePause} /> : <RecordSetup onStart={startRecording} onError={setError} />)}{activeView === "settings" && <SettingsView onSaved={() => setNotice("Settings saved on this device.")} onError={setError} />}
+        {activeView === "record" && (recordingMeeting && recordingStatus ? <ActiveRecording meeting={recordingMeeting} status={recordingStatus} liveLines={liveLines} liveError={liveError} previewing={previewing} onStop={stopRecording} onTogglePause={togglePause} /> : <RecordSetup onStart={startRecording} onError={setError} />)}{activeView === "settings" && <SettingsView onSaved={() => setNotice("Settings saved on this device.")} onError={setError} />}
         {activeView === "meetings" && search.trim().length >= 2 && transcriptMatches.length > 0 && <section className="search-results"><h2>Transcript matches</h2>{transcriptMatches.map((result) => <button type="button" key={result.segmentId} onClick={() => openSearchResult(result)}><span><strong>{result.meetingTitle}</strong><small>{timestampLabel(result.startMs)}</small></span><p>{result.snippet.replaceAll("<mark>", "").replaceAll("</mark>", "")}</p></button>)}</section>}
       </div></main>
     <nav className="mobile-nav" aria-label="Mobile navigation">{navItems.map((item) => <button className={activeView === item.id ? "active" : ""} key={item.id} onClick={() => setActiveView(item.id)} type="button"><Icon name={item.icon} size={19} /><span>{item.label}</span></button>)}</nav>

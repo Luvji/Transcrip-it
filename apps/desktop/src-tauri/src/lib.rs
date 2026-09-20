@@ -130,6 +130,7 @@ pub fn run() {
             recording::start_recording,
             recording::audio_devices,
             recording::recording_status,
+            recording::recover_interrupted_recordings,
             recording::pause_recording,
             recording::resume_recording,
             recording::stop_recording,

@@ -229,29 +229,37 @@ impl Database {
         let interrupted = {
             let connection = self.connection()?;
             let mut statement = connection.prepare(
-                "SELECT id, lifecycle_state FROM meetings
+                "SELECT id, lifecycle_state, state_revision FROM meetings
                  WHERE lifecycle_state IN ('recording', 'paused', 'processing')",
             )?;
             let meetings = statement
                 .query_map([], |row| {
-                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, i64>(2)?,
+                    ))
                 })?
                 .collect::<Result<Vec<_>, _>>()?;
             meetings
         };
-        for (meeting_id, stored_state) in &interrupted {
+        for (meeting_id, stored_state, stored_revision) in &interrupted {
             let state = MeetingState::from_str(stored_state)?;
+            let mut recovery_revision = *stored_revision;
             if matches!(state, MeetingState::Recording | MeetingState::Paused) {
                 self.transition_meeting(&MeetingTransitionRequest {
                     meeting_id: meeting_id.clone(),
-                    idempotency_key: format!("startup-recovery-process:{meeting_id}"),
+                    idempotency_key: format!(
+                        "startup-recovery-process:{meeting_id}:{recovery_revision}"
+                    ),
                     expected_state: state,
                     next_state: MeetingState::Processing,
                 })?;
+                recovery_revision += 1;
             }
             self.transition_meeting(&MeetingTransitionRequest {
                 meeting_id: meeting_id.clone(),
-                idempotency_key: format!("startup-recovery-fail:{meeting_id}"),
+                idempotency_key: format!("startup-recovery-fail:{meeting_id}:{recovery_revision}"),
                 expected_state: MeetingState::Processing,
                 next_state: MeetingState::Failed,
             })?;
@@ -714,6 +722,20 @@ mod tests {
             MeetingState::Failed
         );
         assert_eq!(database.recover_interrupted_meetings().unwrap(), 0);
+
+        database
+            .transition_meeting(&MeetingTransitionRequest {
+                meeting_id: "meeting-1".to_owned(),
+                idempotency_key: "retry-before-second-crash".to_owned(),
+                expected_state: MeetingState::Failed,
+                next_state: MeetingState::Processing,
+            })
+            .unwrap();
+        assert_eq!(database.recover_interrupted_meetings().unwrap(), 1);
+        assert_eq!(
+            database.meeting_state("meeting-1").unwrap(),
+            MeetingState::Failed
+        );
     }
 
     #[test]

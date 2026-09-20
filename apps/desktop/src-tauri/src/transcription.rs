@@ -98,6 +98,7 @@ pub struct LiveTranscriptLine {
     track_id: String,
     speaker_label: String,
     chunk_index: u64,
+    window_index: u64,
     start_ms: u64,
     text: String,
 }
@@ -258,23 +259,33 @@ pub fn rename_transcript_speaker(
 }
 
 #[tauri::command]
-pub fn live_transcript_preview(
+pub async fn live_transcript_preview(
     app: tauri::AppHandle,
-    database: tauri::State<'_, Database>,
     transcriber: tauri::State<'_, Transcriber>,
     meeting_id: String,
 ) -> Result<LiveTranscriptPreview, String> {
-    let mut preview_active = transcriber
-        .preview_active
-        .lock()
-        .map_err(|_| "live transcription state lock is poisoned".to_owned())?;
-    if *preview_active {
-        return Err("A live transcription update is already running.".to_owned());
+    {
+        let mut preview_active = transcriber
+            .preview_active
+            .lock()
+            .map_err(|_| "live transcription state lock is poisoned".to_owned())?;
+        if *preview_active {
+            return Err("A live transcription update is already running.".to_owned());
+        }
+        *preview_active = true;
     }
-    *preview_active = true;
-    drop(preview_active);
 
-    let result = run_live_preview(&app, &database, &meeting_id);
+    let preview_app = app.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let database = preview_app.state::<Database>();
+        run_live_preview(&preview_app, &database, &meeting_id)
+    })
+    .await
+    .unwrap_or_else(|error| {
+        Err(format!(
+            "Live transcription worker stopped unexpectedly: {error}"
+        ))
+    });
     if let Ok(mut active) = transcriber.preview_active.lock() {
         *active = false;
     }
@@ -316,13 +327,33 @@ fn run_live_preview(
         let Some((chunk, chunk_index)) = latest_wav_chunk(&recording_path, track_id)? else {
             continue;
         };
+        let duration_ms = wav_duration_ms(&chunk)?;
+        if duration_ms < 3_000 {
+            continue;
+        }
+        const WINDOW_MS: u64 = 15_000;
+        let window_index = (duration_ms.saturating_sub(1) / WINDOW_MS).min(3);
+        let window_start_ms = window_index * WINDOW_MS;
+        let window_duration_ms = duration_ms.saturating_sub(window_start_ms).min(WINDOW_MS);
+        if window_duration_ms < 3_000 {
+            continue;
+        }
         let normalized = preview_directory.join(format!("{track_id}-{run_id}.wav"));
         let status = Command::new("ffmpeg")
-            .args(["-y", "-v", "error", "-i"])
+            .args([
+                "-y",
+                "-v",
+                "error",
+                "-ss",
+                &format!("{:.3}", window_start_ms as f64 / 1000.0),
+                "-t",
+                &format!("{:.3}", window_duration_ms as f64 / 1000.0),
+                "-i",
+            ])
             .arg(&chunk)
             .args([
                 "-af",
-                "highpass=f=80,lowpass=f=7800,loudnorm=I=-16:LRA=11:TP=-1.5",
+                "highpass=f=80,lowpass=f=7800",
                 "-ar",
                 "16000",
                 "-ac",
@@ -332,6 +363,10 @@ fn run_live_preview(
             .status()
             .map_err(|error| format!("Could not prepare the live audio preview: {error}"))?;
         if !status.success() {
+            continue;
+        }
+        if !wav_has_speech_energy(&normalized)? {
+            let _ = fs::remove_file(normalized);
             continue;
         }
         let output_base = preview_directory.join(format!("{track_id}-{run_id}"));
@@ -361,12 +396,13 @@ fn run_live_preview(
                 .filter(|text| !text.is_empty())
                 .collect::<Vec<_>>()
                 .join(" ");
-            if !text.is_empty() {
+            if !text.is_empty() && !looks_like_hallucination(&text) {
                 lines.push(LiveTranscriptLine {
                     track_id: track_id.to_owned(),
                     speaker_label: speaker_label.to_owned(),
                     chunk_index,
-                    start_ms: chunk_index * 60_000,
+                    window_index,
+                    start_ms: chunk_index * 60_000 + window_start_ms,
                     text,
                 });
             }
@@ -465,36 +501,54 @@ pub fn export_transcript(
 }
 
 #[tauri::command]
-pub fn transcribe_meeting(
+pub async fn transcribe_meeting(
     app: tauri::AppHandle,
-    database: tauri::State<'_, Database>,
     transcriber: tauri::State<'_, Transcriber>,
     meeting_id: String,
     model_pack: Option<String>,
 ) -> Result<Vec<TranscriptSegmentRecord>, String> {
-    let existing = database
-        .list_transcript(&meeting_id)
-        .map_err(|error| error.to_string())?;
+    let existing = {
+        let database = app.state::<Database>();
+        database
+            .list_transcript(&meeting_id)
+            .map_err(|error| error.to_string())?
+    };
     if !existing.is_empty() {
         return Ok(existing);
     }
 
+    {
+        let mut active = transcriber
+            .active
+            .lock()
+            .map_err(|_| "transcription state lock is poisoned".to_owned())?;
+        if let Some(active_id) = active.as_ref() {
+            return Err(format!(
+                "Transcription is already running for meeting {active_id}."
+            ));
+        }
+        *active = Some(meeting_id.clone());
+    }
+    let transcription_app = app.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let database = transcription_app.state::<Database>();
+        run_transcription(
+            &transcription_app,
+            &database,
+            &meeting_id,
+            model_pack.as_deref().unwrap_or("fast"),
+        )
+    })
+    .await
+    .unwrap_or_else(|error| {
+        Err(format!(
+            "Transcription worker stopped unexpectedly: {error}"
+        ))
+    });
     let mut active = transcriber
         .active
         .lock()
         .map_err(|_| "transcription state lock is poisoned".to_owned())?;
-    if let Some(active_id) = active.as_ref() {
-        return Err(format!(
-            "Transcription is already running for meeting {active_id}."
-        ));
-    }
-    *active = Some(meeting_id.clone());
-    let result = run_transcription(
-        &app,
-        &database,
-        &meeting_id,
-        model_pack.as_deref().unwrap_or("fast"),
-    );
     *active = None;
     result
 }
@@ -667,13 +721,15 @@ fn transcribe_track(
         .into_iter()
         .filter_map(|segment| {
             let text = segment.text.trim().to_owned();
-            (!text.is_empty()).then_some(TranscriptSegmentInput {
-                start_ms: segment.offsets.from,
-                end_ms: segment.offsets.to,
-                speaker_label: Some(track.speaker_label.to_owned()),
-                source_track: Some(track.id.to_owned()),
-                text,
-            })
+            (!text.is_empty() && !looks_like_hallucination(&text)).then_some(
+                TranscriptSegmentInput {
+                    start_ms: segment.offsets.from,
+                    end_ms: segment.offsets.to,
+                    speaker_label: Some(track.speaker_label.to_owned()),
+                    source_track: Some(track.id.to_owned()),
+                    text,
+                },
+            )
         })
         .collect::<Vec<_>>();
     Ok(merge_continuous_segments(segments))
@@ -736,6 +792,119 @@ fn latest_wav_chunk(directory: &Path, track: &str) -> Result<Option<(PathBuf, u6
         .and_then(|value| value.parse::<u64>().ok())
         .ok_or_else(|| format!("Could not read the {track} chunk index."))?;
     Ok(Some((path, index)))
+}
+
+fn wav_duration_ms(path: &Path) -> Result<u64, String> {
+    let bytes = fs::read(path)
+        .map_err(|error| format!("Could not read WAV timing data {}: {error}", path.display()))?;
+    let wav = parse_pcm_wav(&bytes)?;
+    let bytes_per_second =
+        u64::from(wav.sample_rate) * u64::from(wav.channels) * u64::from(wav.bits_per_sample / 8);
+    if bytes_per_second == 0 {
+        return Err("WAV audio format has an invalid sample rate.".to_owned());
+    }
+    Ok((wav.data.len() as u64).saturating_mul(1000) / bytes_per_second)
+}
+
+fn wav_has_speech_energy(path: &Path) -> Result<bool, String> {
+    let bytes = fs::read(path).map_err(|error| {
+        format!(
+            "Could not read live preview audio {}: {error}",
+            path.display()
+        )
+    })?;
+    let wav = parse_pcm_wav(&bytes)?;
+    if wav.bits_per_sample != 16 {
+        return Err("Live preview requires 16-bit PCM WAV audio.".to_owned());
+    }
+    let mut sample_count = 0_u64;
+    let mut squared_sum = 0_f64;
+    let mut peak = 0_f64;
+    let (samples, _) = wav.data.as_chunks::<2>();
+    for sample in samples {
+        let amplitude = f64::from(i16::from_le_bytes([sample[0], sample[1]])) / 32768.0;
+        squared_sum += amplitude * amplitude;
+        peak = peak.max(amplitude.abs());
+        sample_count += 1;
+    }
+    if sample_count == 0 {
+        return Ok(false);
+    }
+    let rms = (squared_sum / sample_count as f64).sqrt();
+    Ok(rms >= 0.0025 && peak >= 0.012)
+}
+
+struct PcmWav<'a> {
+    channels: u16,
+    sample_rate: u32,
+    bits_per_sample: u16,
+    data: &'a [u8],
+}
+
+fn parse_pcm_wav(bytes: &[u8]) -> Result<PcmWav<'_>, String> {
+    if bytes.len() < 12 || &bytes[..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
+        return Err("Live preview input is not a valid WAV file.".to_owned());
+    }
+    let mut offset = 12_usize;
+    let mut format = None;
+    let mut audio = None;
+    while offset.saturating_add(8) <= bytes.len() {
+        let id = &bytes[offset..offset + 4];
+        let size = u32::from_le_bytes(bytes[offset + 4..offset + 8].try_into().unwrap()) as usize;
+        let start = offset + 8;
+        let end = start.saturating_add(size).min(bytes.len());
+        if id == b"fmt " && end.saturating_sub(start) >= 16 {
+            let encoding = u16::from_le_bytes(bytes[start..start + 2].try_into().unwrap());
+            if encoding != 1 {
+                return Err("Live preview input must use PCM WAV audio.".to_owned());
+            }
+            format = Some((
+                u16::from_le_bytes(bytes[start + 2..start + 4].try_into().unwrap()),
+                u32::from_le_bytes(bytes[start + 4..start + 8].try_into().unwrap()),
+                u16::from_le_bytes(bytes[start + 14..start + 16].try_into().unwrap()),
+            ));
+        } else if id == b"data" {
+            audio = Some(&bytes[start..end]);
+        }
+        offset = start.saturating_add(size).saturating_add(size % 2);
+    }
+    let (channels, sample_rate, bits_per_sample) =
+        format.ok_or_else(|| "WAV audio format is missing.".to_owned())?;
+    Ok(PcmWav {
+        channels,
+        sample_rate,
+        bits_per_sample,
+        data: audio.ok_or_else(|| "WAV audio data is missing.".to_owned())?,
+    })
+}
+
+fn looks_like_hallucination(text: &str) -> bool {
+    let words = text
+        .split_whitespace()
+        .map(|word| {
+            word.trim_matches(|character: char| !character.is_alphanumeric())
+                .to_lowercase()
+        })
+        .filter(|word| !word.is_empty())
+        .collect::<Vec<_>>();
+    if words.len() < 8 {
+        return false;
+    }
+    for width in [2_usize, 3, 4] {
+        let mut counts = std::collections::HashMap::new();
+        for phrase in words.windows(width) {
+            *counts.entry(phrase.join(" ")).or_insert(0_usize) += 1;
+        }
+        if counts
+            .values()
+            .copied()
+            .max()
+            .is_some_and(|count| count >= 3 && count * width * 2 >= words.len())
+        {
+            return true;
+        }
+    }
+    false
 }
 
 fn write_playlist(directory: &Path, name: &str, chunks: &[PathBuf]) -> Result<PathBuf, String> {
@@ -867,5 +1036,43 @@ mod tests {
         assert_eq!(grouped[0].text, "This is one continuous thought.");
         assert_eq!(grouped[0].end_ms, 2_500);
         assert_eq!(grouped[2].speaker_label.as_deref(), Some("Meeting audio"));
+    }
+
+    #[test]
+    fn rejects_repetitive_whisper_hallucinations() {
+        assert!(looks_like_hallucination(
+            "If you are able to do it, you will be able to do it. If you are able to do it, you will be able to do it."
+        ));
+        assert!(looks_like_hallucination(
+            "All right. All right. All right. All right. All right."
+        ));
+        assert!(!looks_like_hallucination(
+            "We reviewed the release plan and agreed to test recording recovery tomorrow."
+        ));
+    }
+
+    #[test]
+    fn reads_pcm_wav_duration_and_energy() {
+        let sample_rate = 16_000_u32;
+        let samples = vec![2_000_i16; sample_rate as usize];
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"RIFF");
+        bytes.extend_from_slice(&(36 + samples.len() as u32 * 2).to_le_bytes());
+        bytes.extend_from_slice(b"WAVEfmt ");
+        bytes.extend_from_slice(&16_u32.to_le_bytes());
+        bytes.extend_from_slice(&1_u16.to_le_bytes());
+        bytes.extend_from_slice(&1_u16.to_le_bytes());
+        bytes.extend_from_slice(&sample_rate.to_le_bytes());
+        bytes.extend_from_slice(&(sample_rate * 2).to_le_bytes());
+        bytes.extend_from_slice(&2_u16.to_le_bytes());
+        bytes.extend_from_slice(&16_u16.to_le_bytes());
+        bytes.extend_from_slice(b"data");
+        bytes.extend_from_slice(&(samples.len() as u32 * 2).to_le_bytes());
+        for sample in samples {
+            bytes.extend_from_slice(&sample.to_le_bytes());
+        }
+        let parsed = parse_pcm_wav(&bytes).unwrap();
+        assert_eq!(parsed.sample_rate, sample_rate);
+        assert_eq!(parsed.data.len(), sample_rate as usize * 2);
     }
 }
