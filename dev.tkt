@@ -94,7 +94,7 @@ TRANSCRIP-IT - DEVELOPMENT TRACKER
     $- [FT] [TI-0031] Require consent confirmation before recording
       [DESC] Show an unambiguous recording state and remind users of consent and policy responsibilities.
       [DESC] Block capture until explicit acknowledgement and show distinct live, paused, stopped, and failure states.
-    ^- [ENH] [TI-0032] Recover an interrupted meeting lifecycle on restart
+    $- [ENH] [TI-0032] Recover an interrupted meeting lifecycle on restart
       [DESC] Reopen unfinished recordings from the last safe checkpoint without corrupting completed work.
       [DESC] Safely stop child capture on shutdown, audit interrupted lifecycle recovery, expose preserved chunks, and allow transcript retry after restart.
       [DESC] Native crash evidence (Sep 20, 2026): capture and Whisper child processes survived the desktop shell, leaving an 86m 18s orphan recording and continued CPU/audio work until manually stopped.
@@ -102,6 +102,8 @@ TRANSCRIP-IT - DEVELOPMENT TRACKER
       [DESC] Implemented Linux parent-death signaling with a post-install parent-PID race check for capture, playback, live/final FFmpeg, and live/final Whisper workers; the capture worker receives SIGTERM and finalizes its manifest and WAV chunks through its existing termination handler.
       [DESC] Restart recovery now restores missing meeting duration from a completed manifest before moving interrupted lifecycle states to failed; verified with a 5,178.125-second manifest fixture, an actual parent-exit worker test, 33 Rust tests, warning-free Clippy, frontend tests, structure checks, and the production build. Native forced-crash interaction acceptance remains.
       [DESC] Failed native retest evidence (Sep 20, 2026, meeting "test3"): capture workers stopped and 3m 40s of synchronized chunks were preserved after the desktop closed, but the manifest remained in recording state and the database still reported recording until restart recovery. Recovery must derive duration from preserved chunks when graceful manifest finalization is interrupted.
+      [DESC] Implemented incomplete-manifest recovery by validating numbered microphone/system PCM WAV headers, summing each track independently, ignoring derivative files, and restoring the longest preserved duration before lifecycle recovery.
+      [DESC] Verified incomplete-manifest and completed-manifest recovery with focused regressions and 43 Rust tests. Native restart restored test3 from its preserved chunks to 397,427 ms (6m 37.427s) while retaining its recoverable failed lifecycle.
 
 *- [EPIC] [TI-0033] Reliable microphone and system-audio capture
   [DESC] Capture meeting audio in recoverable chunks without silently losing data.

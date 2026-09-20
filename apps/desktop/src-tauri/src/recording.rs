@@ -4,7 +4,9 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::BTreeMap,
     fs,
+    io::Read,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::Mutex,
@@ -409,24 +411,78 @@ pub(crate) fn recover_completed_recording_metadata(database: &Database) -> Resul
         let Ok(manifest) = read_manifest(&recording_path) else {
             continue;
         };
-        if manifest.status != "complete" {
-            continue;
-        }
-        let Some(duration_seconds) = manifest
-            .tracks
-            .iter()
-            .filter_map(|track| track.captured_duration_seconds)
-            .reduce(f64::max)
+        let manifest_duration_ms = (manifest.status == "complete")
+            .then(|| {
+                manifest
+                    .tracks
+                    .iter()
+                    .filter_map(|track| track.captured_duration_seconds)
+                    .reduce(f64::max)
+                    .map(|seconds| seconds.mul_add(1000.0, 0.0).round() as i64)
+            })
+            .flatten();
+        let Some(duration_ms) =
+            manifest_duration_ms.or(recoverable_wav_duration_ms(&recording_path)?)
         else {
             continue;
         };
-        let duration_ms = duration_seconds.mul_add(1000.0, 0.0).round() as i64;
         database
             .mark_recording_finished(&meeting_id, duration_ms, &stored_path)
             .map_err(|error| error.to_string())?;
         recovered += 1;
     }
     Ok(recovered)
+}
+
+fn recoverable_wav_duration_ms(recording_path: &Path) -> Result<Option<i64>, String> {
+    let mut track_durations = BTreeMap::<String, i64>::new();
+    let entries = fs::read_dir(recording_path).map_err(|error| {
+        format!(
+            "Could not inspect preserved recording {}: {error}",
+            recording_path.display()
+        )
+    })?;
+    for entry in entries.filter_map(Result::ok) {
+        let path = entry.path();
+        let Some(filename) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        let Some(stem) = filename.strip_suffix(".wav") else {
+            continue;
+        };
+        let Some((track, chunk_index)) = stem.rsplit_once('-') else {
+            continue;
+        };
+        if !matches!(track, "mic" | "mic_raw" | "system")
+            || chunk_index.len() != 5
+            || !chunk_index
+                .chars()
+                .all(|character| character.is_ascii_digit())
+        {
+            continue;
+        }
+        if let Some(duration_ms) = pcm_wav_duration_ms(&path) {
+            *track_durations.entry(track.to_owned()).or_default() += duration_ms;
+        }
+    }
+    Ok(track_durations
+        .into_values()
+        .max()
+        .filter(|duration| *duration > 0))
+}
+
+fn pcm_wav_duration_ms(path: &Path) -> Option<i64> {
+    let mut file = fs::File::open(path).ok()?;
+    let mut header = [0_u8; 44];
+    file.read_exact(&mut header).ok()?;
+    if &header[0..4] != b"RIFF" || &header[8..12] != b"WAVE" || &header[36..40] != b"data" {
+        return None;
+    }
+    let byte_rate = u32::from_le_bytes(header[28..32].try_into().ok()?) as u64;
+    let data_bytes = u32::from_le_bytes(header[40..44].try_into().ok()?) as u64;
+    (byte_rate > 0)
+        .then_some(data_bytes.saturating_mul(1000) / byte_rate)
+        .and_then(|duration| i64::try_from(duration).ok())
 }
 
 #[tauri::command]
@@ -1220,6 +1276,71 @@ mod tests {
 
         drop(database);
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn preserved_wav_chunks_restore_duration_without_a_completed_manifest() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "transcrip-it-chunk-recovery-{}-{unique}",
+            std::process::id()
+        ));
+        let recording_path = root.join("recording");
+        fs::create_dir_all(&recording_path).unwrap();
+        let database = Database::open(&root.join("test.sqlite3")).unwrap();
+        database
+            .create_meeting(&CreateMeetingInput {
+                id: "meeting-1".to_owned(),
+                idempotency_key: "create-meeting-1".to_owned(),
+                title: "Interrupted recording".to_owned(),
+            })
+            .unwrap();
+        database
+            .mark_recording_started("meeting-1", &recording_path.to_string_lossy())
+            .unwrap();
+        fs::write(
+            recording_path.join("manifest.json"),
+            r#"{"status":"recording","tracks":[{"capturedDurationSeconds":null}],"errors":[]}"#,
+        )
+        .unwrap();
+        write_test_wav(&recording_path.join("mic-00000.wav"), 60_000);
+        write_test_wav(&recording_path.join("mic-00001.wav"), 7_250);
+        write_test_wav(&recording_path.join("system-00000.wav"), 60_000);
+        fs::write(recording_path.join("transcription-mic.wav"), b"not a chunk").unwrap();
+
+        assert_eq!(recover_completed_recording_metadata(&database).unwrap(), 1);
+        let meeting = database.list_meetings(false).unwrap().remove(0);
+        assert_eq!(meeting.duration_ms, Some(67_250));
+
+        drop(database);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    fn write_test_wav(path: &Path, duration_ms: u32) {
+        let sample_rate = 48_000_u32;
+        let channels = 1_u16;
+        let block_align = channels * 2;
+        let byte_rate = sample_rate * u32::from(block_align);
+        let data_bytes = u64::from(byte_rate) * u64::from(duration_ms) / 1000;
+        let data_bytes = u32::try_from(data_bytes).unwrap();
+        let mut header = [0_u8; 44];
+        header[0..4].copy_from_slice(b"RIFF");
+        header[4..8].copy_from_slice(&(36 + data_bytes).to_le_bytes());
+        header[8..12].copy_from_slice(b"WAVE");
+        header[12..16].copy_from_slice(b"fmt ");
+        header[16..20].copy_from_slice(&16_u32.to_le_bytes());
+        header[20..22].copy_from_slice(&1_u16.to_le_bytes());
+        header[22..24].copy_from_slice(&channels.to_le_bytes());
+        header[24..28].copy_from_slice(&sample_rate.to_le_bytes());
+        header[28..32].copy_from_slice(&byte_rate.to_le_bytes());
+        header[32..34].copy_from_slice(&block_align.to_le_bytes());
+        header[34..36].copy_from_slice(&16_u16.to_le_bytes());
+        header[36..40].copy_from_slice(b"data");
+        header[40..44].copy_from_slice(&data_bytes.to_le_bytes());
+        fs::write(path, header).unwrap();
     }
 
     #[test]
