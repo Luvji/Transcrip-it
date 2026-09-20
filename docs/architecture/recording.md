@@ -7,8 +7,9 @@ The desktop app connects the consent screen to the proven PulseAudio capture imp
 1. The app discovers PulseAudio sources and lets the user choose microphone-only, system-only, or combined capture.
 2. Combined capture can enable the accepted WebRTC echo-cancellation route. The original microphone is preserved alongside the processed microphone and system tracks.
 3. The backend embeds and installs the versioned Node capture worker inside the per-user application-data directory, then launches it with explicit source and consent arguments.
-4. Start, pause, resume, and stop are mirrored in the transactional meeting state machine. Only one recorder may be active at a time.
-5. Stop uses `SIGINT`, waits for the worker to finalize WAV headers and the atomic manifest, records duration and the private recording path, then marks the meeting ready.
+4. The worker waits until every selected source has produced samples, opens a common recording gate, and only then starts the duration clock. The backend does not report success until this ready state appears in the manifest.
+5. Start, pause, resume, and stop are mirrored in the transactional meeting state machine. Only one recorder may be active at a time.
+6. Stop uses `SIGINT`, waits for the worker to finalize WAV headers and the atomic manifest, records duration and the private recording path, then marks the meeting ready.
 
 Only one desktop process can hold the per-user application lock. Before device discovery or capture, the backend restores physical PulseAudio defaults, moves playback away from orphaned Transcrip-it virtual sinks, and unloads stale echo-cancellation modules left by an interrupted run. App-owned virtual devices are excluded from the source picker.
 

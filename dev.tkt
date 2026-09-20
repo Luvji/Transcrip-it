@@ -34,9 +34,12 @@ TRANSCRIP-IT - DEVELOPMENT TRACKER
       [DESC] Experimental offline adaptive filtering degraded voice clarity and must not be used as the production echo-cancellation path.
       [DESC] The replacement WebRTC mode preserves raw microphone audio, produces an echo-cancelled microphone track, and restores temporary playback routing after capture.
       [DESC] Accepted for the MVP with a headset recommendation and a warning that loud simultaneous system playback can suppress local speech.
-    *- [ENH] [TI-0013] Verify separate and mixed audio tracks
+    $- [ENH] [TI-0013] Verify separate and mixed audio tracks
       [DESC] Exercise microphone-only, system-audio-only, and combined capture paths.
       [DESC] Measure source readiness, establish a common session start, and verify track alignment after device wake-up.
+      [DESC] Native three-second acceptance exposed a microphone wake-up delay: mic-only captured 1.821s while system-only captured 2.949s and combined tracks captured 2.963-2.986s. Duration had started before the microphone produced samples.
+      [DESC] Added a five-second all-source readiness gate and made the desktop wait for the manifest's ready state before reporting recording success. Requested duration now begins only after selected sources are producing samples.
+      [DESC] Native repeat captured 3.299s mic-only and aligned combined tracks of 2.990s processed mic, 2.981s raw mic, and 3.001s system (20ms maximum spread), with complete error-free manifests, decodable WAVs, restored physical routing, and no leftover echo module.
     *- [ENH] [TI-0014] Benchmark two English transcription model sizes
       [DESC] Measure accuracy and speed across Indian accents, background noise, and domain terminology.
     *- [ENH] [TI-0015] Benchmark experimental multilingual transcription

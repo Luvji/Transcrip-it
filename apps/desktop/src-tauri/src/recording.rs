@@ -277,20 +277,12 @@ pub fn start_recording(
         .spawn()
         .map_err(|error| format!("Could not start the audio recorder: {error}"))?;
 
-    thread::sleep(Duration::from_millis(350));
-    if let Some(status) = child.try_wait().map_err(|error| error.to_string())? {
-        let details = fs::read_to_string(&diagnostics_path).unwrap_or_default();
-        let detail = details
-            .lines()
-            .rev()
-            .find(|line| !line.trim().is_empty())
-            .unwrap_or("Check that the selected audio devices are available.");
+    if let Err(error) = wait_for_capture_start(&recording_path, &diagnostics_path, &mut child) {
+        stop_child(&mut child);
         if recording_path.exists() {
             let _ = fs::remove_dir_all(&recording_path);
         }
-        return Err(format!(
-            "Audio capture could not start ({status}): {detail}"
-        ));
+        return Err(error);
     }
 
     let transition = MeetingTransitionRequest {
@@ -329,6 +321,38 @@ pub fn start_recording(
         storage_available_bytes: Some(available),
         warnings: plan.warnings,
     })
+}
+
+fn wait_for_capture_start(
+    recording_path: &Path,
+    diagnostics_path: &Path,
+    child: &mut Child,
+) -> Result<(), String> {
+    let deadline = Instant::now() + Duration::from_secs(7);
+    loop {
+        if let Some(status) = child.try_wait().map_err(|error| error.to_string())? {
+            let details = fs::read_to_string(diagnostics_path).unwrap_or_default();
+            let detail = details
+                .lines()
+                .rev()
+                .find(|line| !line.trim().is_empty())
+                .unwrap_or("Check that the selected audio devices are available.");
+            return Err(format!(
+                "Audio capture could not start ({status}): {detail}"
+            ));
+        }
+        if let Ok(manifest) = read_manifest(recording_path) {
+            match manifest.status.as_str() {
+                "recording" => return Ok(()),
+                "failed" => return Err("Audio sources could not start. Check the selected microphone and speaker devices.".to_owned()),
+                _ => {}
+            }
+        }
+        if Instant::now() >= deadline {
+            return Err("Audio sources did not become ready within seven seconds. Check that the microphone or speaker is enabled.".to_owned());
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
 }
 
 #[tauri::command]

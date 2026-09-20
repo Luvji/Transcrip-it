@@ -10,6 +10,7 @@ const DEFAULT_CHANNELS = 2;
 const DEFAULT_CHUNK_SECONDS = 60;
 const BITS_PER_SAMPLE = 16;
 const DEFAULT_MIN_FREE_BYTES = 128 * 1024 * 1024;
+const SOURCE_READY_TIMEOUT_MS = 5_000;
 
 export function parseSourceList(output) {
   return output
@@ -278,7 +279,7 @@ function printDevices(devices) {
   }
 }
 
-function startCapture({ track, directory, sampleRate, channels, chunkSeconds }) {
+function startCapture({ track, directory, sampleRate, channels, chunkSeconds, startGate }) {
   const writer = new WavChunkWriter({ directory, track: track.name, sampleRate, channels, chunkSeconds });
   const child = spawn("parec", buildParecArguments({
     source: track.source,
@@ -293,6 +294,12 @@ function startCapture({ track, directory, sampleRate, channels, chunkSeconds }) 
     if (diagnostics.length > 16_384) diagnostics = diagnostics.slice(-16_384);
   });
   let firstSampleAt = null;
+  let markReady;
+  let rejectReady;
+  const ready = new Promise((resolve, reject) => {
+    markReady = resolve;
+    rejectReady = reject;
+  });
   const completion = new Promise((resolve) => {
     let settled = false;
     const settle = (result) => {
@@ -300,12 +307,22 @@ function startCapture({ track, directory, sampleRate, channels, chunkSeconds }) 
       settled = true;
       resolve(result);
     };
-    child.once("error", (error) => settle({ error: error.message }));
-    child.once("exit", (code, signal) => settle({ code, signal }));
+    child.once("error", (error) => {
+      rejectReady(new Error(`${track.name} source could not start: ${error.message}`));
+      settle({ error: error.message });
+    });
+    child.once("exit", (code, signal) => {
+      if (!firstSampleAt) rejectReady(new Error(`${track.name} source ended before producing audio.`));
+      settle({ code, signal });
+    });
   });
   const reading = (async () => {
     for await (const chunk of child.stdout) {
-      firstSampleAt ??= new Date().toISOString();
+      if (!firstSampleAt) {
+        firstSampleAt = new Date().toISOString();
+        markReady();
+      }
+      if (!startGate.open) continue;
       lastSampleAt = Date.now();
       lastPeak = pcmPeak(chunk);
       await writer.write(chunk);
@@ -315,6 +332,7 @@ function startCapture({ track, directory, sampleRate, channels, chunkSeconds }) 
     track,
     child,
     writer,
+    ready,
     completion,
     reading,
     firstSampleAt: () => firstSampleAt,
@@ -368,8 +386,8 @@ async function record(options) {
   const manifestPath = path.join(sessionDirectory, "manifest.json");
   const manifest = {
     schemaVersion: 1,
-    status: "recording",
-    startedAt: new Date().toISOString(),
+    status: "starting",
+    startedAt: null,
     stoppedAt: null,
     sampleRate,
     channels,
@@ -392,8 +410,9 @@ async function record(options) {
   console.log("Press Ctrl+C to stop safely.");
 
   let stopReason = null;
+  const startGate = { open: false };
   const captures = requestedTracks.map((track) => startCapture({
-    track, directory: sessionDirectory, sampleRate, channels, chunkSeconds,
+    track, directory: sessionDirectory, sampleRate, channels, chunkSeconds, startGate,
   }));
   const stopChildren = (reason) => {
     if (stopReason) return;
@@ -415,13 +434,36 @@ async function record(options) {
       });
     }).catch(() => {});
   };
-  writeLevels(true);
-  const levelTimer = setInterval(() => writeLevels(true), 250);
   const handleInterrupt = () => stopChildren("interrupt");
   const handleTermination = () => stopChildren("termination");
   process.once("SIGINT", handleInterrupt);
   process.once("SIGTERM", handleTermination);
-  const timer = duration ? setTimeout(() => stopChildren("duration"), duration * 1000) : null;
+  let startupError = null;
+  let readinessTimer;
+  try {
+    await Promise.race([
+      Promise.all(captures.map((capture) => capture.ready)),
+      new Promise((_, reject) => {
+        readinessTimer = setTimeout(() => reject(new Error("Audio sources did not become ready within five seconds.")), SOURCE_READY_TIMEOUT_MS);
+      }),
+    ]);
+  } catch (error) {
+    startupError = error;
+    stopChildren("startup-failed");
+  } finally {
+    clearTimeout(readinessTimer);
+  }
+  let levelTimer = null;
+  let timer = null;
+  if (!startupError) {
+    startGate.open = true;
+    manifest.status = "recording";
+    manifest.startedAt = new Date().toISOString();
+    await writeJsonAtomic(manifestPath, manifest);
+    writeLevels(true);
+    levelTimer = setInterval(() => writeLevels(true), 250);
+    timer = duration ? setTimeout(() => stopChildren("duration"), duration * 1000) : null;
+  }
 
   const results = await Promise.all(captures.map(async (capture) => {
     let readError = null;
@@ -445,7 +487,7 @@ async function record(options) {
   }));
 
   if (timer) clearTimeout(timer);
-  clearInterval(levelTimer);
+  if (levelTimer) clearInterval(levelTimer);
   writeLevels(false);
   await levelWrite;
   process.removeListener("SIGINT", handleInterrupt);
@@ -464,6 +506,13 @@ async function record(options) {
         diagnostics: result.diagnostics,
       });
     }
+  }
+  if (startupError) {
+    manifest.errors.push({
+      track: "startup",
+      message: startupError.message,
+      diagnostics: results.map((result) => result.diagnostics).filter(Boolean).join("\n"),
+    });
   }
   manifest.status = manifest.errors.length ? "failed" : "complete";
   manifest.stopReason = stopReason ?? "source-ended";
