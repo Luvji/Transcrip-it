@@ -130,10 +130,13 @@ export interface CompletedRecording {
 export interface PlaybackStatus {
   active: boolean;
   meetingId: string | null;
-  track: "mic" | "mic_raw" | "system" | null;
+  track: AudioTrack | null;
   positionMs: number;
   chunkCount: number;
 }
+
+export type AudioTrack = "mic" | "mic_raw" | "system";
+export type MicrophoneTrack = "mic" | "mic_raw";
 
 export interface StartRecordingOptions {
   mode: "mic" | "system" | "both";
@@ -179,7 +182,7 @@ export const recordingApi = {
     if (!isTauri()) throw new Error("Audio capture is available in the Transcrip-it desktop app.");
     return invoke("resume_recording", { meetingId });
   },
-  async play(meetingId: string, track: "mic" | "system", startMs = 0): Promise<PlaybackStatus> {
+  async play(meetingId: string, track: AudioTrack, startMs = 0): Promise<PlaybackStatus> {
     if (!isTauri()) throw new Error("Audio playback is available in the Transcrip-it desktop app.");
     return invoke("play_recording_track", { meetingId, track, startMs });
   },
@@ -246,9 +249,9 @@ export const transcriptionApi = {
     if (!isTauri()) throw new Error("Model installation is available in the Transcrip-it desktop app.");
     return invoke("install_transcription_model", { pack });
   },
-  async transcribe(meetingId: string, modelPack: TranscriptionModelPack): Promise<TranscriptSegment[]> {
+  async transcribe(meetingId: string, modelPack: TranscriptionModelPack, microphoneTrack: MicrophoneTrack): Promise<TranscriptSegment[]> {
     if (!isTauri()) throw new Error("Local transcription is available in the Transcrip-it desktop app.");
-    return invoke("transcribe_meeting", { meetingId, modelPack });
+    return invoke("transcribe_meeting", { meetingId, modelPack, microphoneTrack });
   },
   async list(meetingId: string): Promise<TranscriptSegment[]> {
     if (!isTauri()) return [];
@@ -258,9 +261,9 @@ export const transcriptionApi = {
     if (!isTauri()) return false;
     return invoke("delete_transcript", { meetingId });
   },
-  async livePreview(meetingId: string): Promise<LiveTranscriptPreview> {
+  async livePreview(meetingId: string, microphoneTrack: MicrophoneTrack): Promise<LiveTranscriptPreview> {
     if (!isTauri()) return { lines: [] };
-    return invoke("live_transcript_preview", { meetingId });
+    return invoke("live_transcript_preview", { meetingId, microphoneTrack });
   },
   async renameSpeaker(meetingId: string, currentLabel: string, newLabel: string): Promise<number> {
     if (!isTauri()) return 0;

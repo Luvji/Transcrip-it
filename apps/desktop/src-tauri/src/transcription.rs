@@ -263,7 +263,9 @@ pub async fn live_transcript_preview(
     app: tauri::AppHandle,
     transcriber: tauri::State<'_, Transcriber>,
     meeting_id: String,
+    microphone_track: Option<String>,
 ) -> Result<LiveTranscriptPreview, String> {
+    let microphone_track = validate_microphone_track(microphone_track.as_deref())?.to_owned();
     {
         let mut preview_active = transcriber
             .preview_active
@@ -278,7 +280,7 @@ pub async fn live_transcript_preview(
     let preview_app = app.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
         let database = preview_app.state::<Database>();
-        run_live_preview(&preview_app, &database, &meeting_id)
+        run_live_preview(&preview_app, &database, &meeting_id, &microphone_track)
     })
     .await
     .unwrap_or_else(|error| {
@@ -296,6 +298,7 @@ fn run_live_preview(
     app: &tauri::AppHandle,
     database: &Database,
     meeting_id: &str,
+    microphone_track: &str,
 ) -> Result<LiveTranscriptPreview, String> {
     let paths = model_paths(app, model_spec("fast")?)?;
     if !paths.binary.is_file() || !paths.model.is_file() {
@@ -323,8 +326,17 @@ fn run_live_preview(
         .map_err(|error| error.to_string())?
         .as_millis();
     let mut lines = Vec::new();
-    for (track_id, speaker_label) in [("mic", "Microphone"), ("system", "Meeting audio")] {
-        let Some((chunk, chunk_index)) = latest_wav_chunk(&recording_path, track_id)? else {
+    for (source_track, track_id, speaker_label) in [
+        (microphone_track, "mic", "Microphone"),
+        ("system", "system", "Meeting audio"),
+    ] {
+        let mut effective_source = source_track;
+        let mut latest = latest_wav_chunk(&recording_path, effective_source)?;
+        if latest.is_none() && effective_source == "mic_raw" {
+            effective_source = "mic";
+            latest = latest_wav_chunk(&recording_path, effective_source)?;
+        }
+        let Some((chunk, chunk_index)) = latest else {
             continue;
         };
         let duration_ms = wav_duration_ms(&chunk)?;
@@ -506,7 +518,9 @@ pub async fn transcribe_meeting(
     transcriber: tauri::State<'_, Transcriber>,
     meeting_id: String,
     model_pack: Option<String>,
+    microphone_track: Option<String>,
 ) -> Result<Vec<TranscriptSegmentRecord>, String> {
+    let microphone_track = validate_microphone_track(microphone_track.as_deref())?.to_owned();
     let existing = {
         let database = app.state::<Database>();
         database
@@ -537,6 +551,7 @@ pub async fn transcribe_meeting(
             &database,
             &meeting_id,
             model_pack.as_deref().unwrap_or("fast"),
+            &microphone_track,
         )
     })
     .await
@@ -558,6 +573,7 @@ fn run_transcription(
     database: &Database,
     meeting_id: &str,
     model_pack: &str,
+    microphone_track: &str,
 ) -> Result<Vec<TranscriptSegmentRecord>, String> {
     let spec = model_spec(model_pack)?;
     let paths = model_paths(app, spec)?;
@@ -594,7 +610,7 @@ fn run_transcription(
         .map_err(|error| error.to_string())?;
 
     let processing = (|| {
-        let tracks = prepare_transcription_audio(&recording_path)?;
+        let tracks = prepare_transcription_audio(&recording_path, microphone_track)?;
         let mut segments = Vec::new();
         for track in tracks {
             segments.extend(transcribe_track(&paths, &recording_path, &track)?);
@@ -628,15 +644,32 @@ struct PreparedTrack {
     path: PathBuf,
 }
 
-fn prepare_transcription_audio(recording_path: &Path) -> Result<Vec<PreparedTrack>, String> {
-    let mic = wav_chunks(recording_path, "mic")?;
+fn prepare_transcription_audio(
+    recording_path: &Path,
+    microphone_track: &str,
+) -> Result<Vec<PreparedTrack>, String> {
+    let mut effective_microphone_track = microphone_track;
+    let mut mic = wav_chunks(recording_path, effective_microphone_track)?;
+    if mic.is_empty() && effective_microphone_track == "mic_raw" {
+        effective_microphone_track = "mic";
+        mic = wav_chunks(recording_path, effective_microphone_track)?;
+    }
     let system = wav_chunks(recording_path, "system")?;
     if mic.is_empty() && system.is_empty() {
         return Err("No captured audio tracks are available.".to_owned());
     }
     let mut tracks = Vec::new();
     if !mic.is_empty() {
-        tracks.push(prepare_track(recording_path, "mic", "Microphone", &mic)?);
+        tracks.push(prepare_track(
+            recording_path,
+            "mic",
+            if effective_microphone_track == "mic_raw" {
+                "Microphone (original)"
+            } else {
+                "Microphone (echo-reduced)"
+            },
+            &mic,
+        )?);
     }
     if !system.is_empty() {
         tracks.push(prepare_track(
@@ -647,6 +680,14 @@ fn prepare_transcription_audio(recording_path: &Path) -> Result<Vec<PreparedTrac
         )?);
     }
     Ok(tracks)
+}
+
+fn validate_microphone_track(track: Option<&str>) -> Result<&str, String> {
+    match track.unwrap_or("mic_raw") {
+        "mic" => Ok("mic"),
+        "mic_raw" => Ok("mic_raw"),
+        _ => Err("Microphone transcription source must be mic or mic_raw.".to_owned()),
+    }
 }
 
 fn prepare_track(
@@ -1049,6 +1090,13 @@ mod tests {
         assert!(!looks_like_hallucination(
             "We reviewed the release plan and agreed to test recording recovery tomorrow."
         ));
+    }
+
+    #[test]
+    fn defaults_to_voice_safe_original_microphone() {
+        assert_eq!(validate_microphone_track(None).unwrap(), "mic_raw");
+        assert_eq!(validate_microphone_track(Some("mic")).unwrap(), "mic");
+        assert!(validate_microphone_track(Some("system")).is_err());
     }
 
     #[test]

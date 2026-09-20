@@ -34,8 +34,10 @@ describe("desktop workspace", () => {
     render(<App />);
     await user.click(screen.getAllByRole("button", { name: "Settings" })[0]);
     await user.selectOptions(screen.getByRole("combobox", { name: "Transcription quality" }), "balanced");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Microphone transcript source" }), "mic");
     await user.click(screen.getByRole("button", { name: "Save settings" }));
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Settings saved"));
     expect(localStorage.getItem("transcrip-it.transcription-pack")).toBe("balanced");
+    expect(localStorage.getItem("transcrip-it.microphone-track")).toBe("mic");
   });
 });
