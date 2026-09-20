@@ -264,9 +264,10 @@ TRANSCRIP-IT - DEVELOPMENT TRACKER
       [DESC] Product direction (Sep 20, 2026): keep audio during the current quality-validation phase, then offer deletion after a final transcript completes to reduce storage use; retain audio only when the user explicitly chooses it and explain that timestamp playback and retranscription will no longer be available.
     *- [ENH] [TI-0084] Review model and dependency licenses
       [DESC] Resolve distribution and commercial-use constraints before packaging.
-    #- [ENH] [TI-0085] Verify local-only network behavior
-      [DESC] Idle native-process socket inspection found no Internet connections, and runtime code audit isolated network commands to explicit model installation. Capture/transcription under monitored network denial remains for release acceptance.
+    $- [ENH] [TI-0085] Verify local-only network behavior
+      [DESC] Idle native-process socket inspection found no Internet connections, and runtime code audit isolated network commands to explicit model installation.
       [DESC] Audit configuration and outbound traffic to prove meeting content remains on-device by default.
+      [DESC] Network-system-call traces over real microphone capture and the exact local FFmpeg/installed whisper.cpp inference executables found no AF_INET or AF_INET6 sockets. Capture connected only to the local PulseAudio AF_UNIX socket; FFmpeg and Whisper made no network connection calls and local Whisper JSON output completed.
 
 *- [EPIC] [TI-0086] Quality, packaging, and pilot release
   [DESC] Validate recovery, accuracy, privacy, usability, performance, and installation before release approval.
