@@ -171,7 +171,9 @@ TRANSCRIP-IT - DEVELOPMENT TRACKER
       [DESC] The replaceable MVP adapter uses pinned whisper.cpp base.en, persists immutable millisecond-aligned segments, and ran the native 31-second sample locally.
     *- [FT] [TI-0048] Offer an optional experimental multilingual pack
       [DESC] Preserve Malayalam, Hindi, Japanese, and mixed speech rather than forcing a meeting into English.
-    *- [FT] [TI-0049] Show processing progress and recoverable errors
+    $- [FT] [TI-0049] Show processing progress and recoverable errors
+      [DESC] Final transcription now publishes privacy-safe preparing, per-track transcription, grouping, and saving stages with bounded percentage progress. The UI polls and displays a persistent progress bar during long local runs.
+      [DESC] Processing failures retain the recording, move the meeting to a recoverable failed state, identify that retry is available from Meetings, and never include transcript content in diagnostics.
     *- [ENH] [TI-0050] Measure processing resource use on the target device
       [DESC] Track time, processor and memory use, temperature, and transcript usability.
     $- [FT] [TI-0051] Generate basic anonymous speaker labels

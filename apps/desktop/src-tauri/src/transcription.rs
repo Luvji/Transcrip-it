@@ -18,6 +18,7 @@ use tauri::Manager;
 pub struct Transcriber {
     active: Mutex<Option<String>>,
     preview_active: Mutex<bool>,
+    progress: Mutex<TranscriptionProgress>,
 }
 
 impl Transcriber {
@@ -25,8 +26,51 @@ impl Transcriber {
         Self {
             active: Mutex::new(None),
             preview_active: Mutex::new(false),
+            progress: Mutex::new(TranscriptionProgress::idle()),
         }
     }
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TranscriptionProgress {
+    active: bool,
+    meeting_id: Option<String>,
+    stage: String,
+    percent: u8,
+}
+
+impl TranscriptionProgress {
+    fn idle() -> Self {
+        Self {
+            active: false,
+            meeting_id: None,
+            stage: "Idle".to_owned(),
+            percent: 0,
+        }
+    }
+}
+
+fn set_transcription_progress(app: &tauri::AppHandle, meeting_id: &str, stage: &str, percent: u8) {
+    if let Ok(mut progress) = app.state::<Transcriber>().progress.lock() {
+        *progress = TranscriptionProgress {
+            active: true,
+            meeting_id: Some(meeting_id.to_owned()),
+            stage: stage.to_owned(),
+            percent: percent.min(99),
+        };
+    }
+}
+
+#[tauri::command]
+pub fn transcription_status(
+    transcriber: tauri::State<'_, Transcriber>,
+) -> Result<TranscriptionProgress, String> {
+    transcriber
+        .progress
+        .lock()
+        .map(|progress| progress.clone())
+        .map_err(|_| "transcription progress lock is poisoned".to_owned())
 }
 
 #[derive(Debug, Serialize)]
@@ -616,6 +660,14 @@ pub async fn transcribe_meeting(
         }
         *active = Some(meeting_id.clone());
     }
+    if let Ok(mut progress) = transcriber.progress.lock() {
+        *progress = TranscriptionProgress {
+            active: true,
+            meeting_id: Some(meeting_id.clone()),
+            stage: "Preparing audio".to_owned(),
+            percent: 5,
+        };
+    }
     let transcription_app = app.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
         let database = transcription_app.state::<Database>();
@@ -638,6 +690,9 @@ pub async fn transcribe_meeting(
         .lock()
         .map_err(|_| "transcription state lock is poisoned".to_owned())?;
     *active = None;
+    if let Ok(mut progress) = transcriber.progress.lock() {
+        *progress = TranscriptionProgress::idle();
+    }
     result
 }
 
@@ -683,11 +738,21 @@ fn run_transcription(
         .map_err(|error| error.to_string())?;
 
     let processing = (|| {
+        set_transcription_progress(app, meeting_id, "Preparing local audio", 10);
         let tracks = prepare_transcription_audio(&recording_path, microphone_track)?;
         let mut segments = Vec::new();
-        for track in tracks {
+        let track_count = tracks.len();
+        for (index, track) in tracks.into_iter().enumerate() {
+            let label = if track.id == "system" {
+                "Transcribing meeting audio"
+            } else {
+                "Transcribing microphone"
+            };
+            let percent = 15 + ((index * 70) / track_count.max(1)) as u8;
+            set_transcription_progress(app, meeting_id, label, percent);
             segments.extend(transcribe_track(&paths, &recording_path, &track)?);
         }
+        set_transcription_progress(app, meeting_id, "Grouping and saving passages", 90);
         segments = remove_probable_system_bleed(segments);
         segments = merge_tracks_independently(segments);
         segments.sort_by_key(|segment| (segment.start_ms, segment.end_ms));

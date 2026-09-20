@@ -129,6 +129,12 @@ h1 { margin-bottom: 6px; color: var(--ink); font-size: clamp(29px, 3.2vw, 39px);
 .playback-indicator i:nth-child(2) { height: 14px; animation-delay: -.3s; }
 .playback-indicator i:nth-child(3) { height: 10px; animation-delay: -.55s; }
 @keyframes playback-wave { to { height: 4px; opacity: .55; } }
+.processing-bar { display: flex; align-items: center; gap: 11px; margin-bottom: 14px; padding: 12px 15px; border: 1px solid #e2d9f2; border-radius: 10px; color: #6e52b1; background: #f7f3fc; }
+.processing-bar > div { min-width: 0; display: grid; flex: 1; gap: 4px; }
+.processing-bar strong { font-size: 10px; }
+.processing-bar span { color: #837b8d; font-size: 8px; }
+.processing-bar i { height: 4px; overflow: hidden; border-radius: 4px; background: #e5dff0; }
+.processing-bar b { display: block; height: 100%; border-radius: inherit; background: #7658bd; transition: width 200ms ease; }
 .loading-copy { padding: 32px; color: var(--muted); text-align: center; }
 .archive-toggle { display: inline-flex; align-items: center; gap: 8px; width: max-content; color: #6e6875; font-size: 11px; font-weight: 600; }
 .archive-toggle input, .consent-check input, .setting-row input { accent-color: var(--violet); }

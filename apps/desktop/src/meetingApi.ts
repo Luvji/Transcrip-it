@@ -220,6 +220,13 @@ export interface TranscriptionModelStatus {
   engineVersion: string;
 }
 
+export interface TranscriptionProgress {
+  active: boolean;
+  meetingId: string | null;
+  stage: string;
+  percent: number;
+}
+
 export interface WorkspaceDiagnostics {
   storageBytes: number;
   recordingBytes: number;
@@ -265,6 +272,10 @@ export const transcriptionApi = {
   async modelStatus(pack: TranscriptionModelPack): Promise<TranscriptionModelStatus> {
     if (!isTauri()) return { installed: false, packId: pack, pack: "Desktop model", modelBytes: null, engineVersion: "Desktop app required" };
     return invoke("transcription_model_status", { pack });
+  },
+  async status(): Promise<TranscriptionProgress> {
+    if (!isTauri()) return { active: false, meetingId: null, stage: "Idle", percent: 0 };
+    return invoke("transcription_status");
   },
   async installModel(pack: TranscriptionModelPack): Promise<TranscriptionModelStatus> {
     if (!isTauri()) throw new Error("Model installation is available in the Transcrip-it desktop app.");

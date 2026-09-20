@@ -233,6 +233,7 @@ pub fn run() {
             recording::playback_status,
             recording::stop_recording_playback,
             transcription::transcription_model_status,
+            transcription::transcription_status,
             transcription::install_transcription_model,
             transcription::list_transcript,
             transcription::delete_transcript,
