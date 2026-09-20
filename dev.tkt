@@ -134,6 +134,9 @@ TRANSCRIP-IT - DEVELOPMENT TRACKER
       [DESC] Added Original mic playback and made the preserved original the voice-safe default for live/final transcription; Settings exposes an explicit experimental echo-reduced option with its speech-loss warning.
       [DESC] A local Whisper comparison at 02:30 recovered a fuller phrase from the original mic than the echo-reduced mic; mic-only recordings safely fall back to their available standard microphone track.
       [DESC] The stopped orphan recorder finalized 5,178 seconds (86m 18s) of synchronized original mic, echo-reduced mic, and system chunks without audio deletion; automatic non-headset source separation remains an enhancement beyond this safe MVP fallback.
+      [DESC] Continue with conservative transcript-level bleed suppression: remove an original-microphone passage only when a sufficiently long system passage strongly matches it in both time and normalized wording, preserving mixed or uncertain microphone speech.
+      [DESC] Implemented post-transcription de-duplication with four-word, 65%-time-overlap, and 82%-word-similarity minimums; only original-microphone passages are candidates, while short acknowledgements, processed-mic passages, non-overlapping text, and mixed local speech remain intact.
+      [DESC] Verified strong-match removal and conservative preservation with focused regressions, 35 Rust tests, warning-free Clippy, frontend tests, repository structure checks, and the production build; native transcript review remains required.
 
 *- [EPIC] [TI-0041] Media import and preparation pipeline
   [DESC] Safely convert recordings and imported media into consistent, traceable processing inputs.

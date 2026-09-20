@@ -10,8 +10,9 @@ The available packs are **Fast English** (`base.en`, approximately 142 MiB), **B
 2. Each track is filtered, loudness-normalized, and converted to 16 kHz mono with FFmpeg.
 3. The selected `whisper-cli` model produces JSON segments with millisecond offsets for each channel.
 4. Adjacent segments from continuous speech are grouped into readable passages, bounded by pauses, duration, and size.
-5. Passages are merged onto one timeline with automatic `Microphone` and `Meeting audio` labels and immutable source-track provenance.
-6. The meeting returns to `ready`; failures enter `failed` and remain recoverable.
+5. When the original microphone is selected, a microphone passage is treated as speaker bleed only if a system passage overlaps at least 65% of its duration, contains at least four words, and reaches 82% normalized word similarity. Short, mixed, and uncertain microphone passages are preserved.
+6. Remaining passages are merged onto one timeline with automatic microphone-source and `Meeting audio` labels and immutable source-track provenance.
+7. The meeting returns to `ready`; failures enter `failed` and remain recoverable.
 
 Original source passages are immutable and idempotent. The transcript viewer links timestamps back to the matching microphone or system track. Channel labels may be renamed to known participant names without changing transcript evidence. SQLite FTS5 indexes source text for local search. Markdown and plain-text exports are written beneath the meeting's private recording directory.
 

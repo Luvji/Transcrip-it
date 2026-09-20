@@ -624,6 +624,7 @@ fn run_transcription(
         for track in tracks {
             segments.extend(transcribe_track(&paths, &recording_path, &track)?);
         }
+        segments = remove_probable_system_bleed(segments);
         segments.sort_by_key(|segment| (segment.start_ms, segment.end_ms));
         database
             .store_source_transcript(meeting_id, &segments)
@@ -818,6 +819,77 @@ fn merge_continuous_segments(segments: Vec<TranscriptSegmentInput>) -> Vec<Trans
         }
     }
     grouped
+}
+
+fn remove_probable_system_bleed(
+    segments: Vec<TranscriptSegmentInput>,
+) -> Vec<TranscriptSegmentInput> {
+    let system_segments = segments
+        .iter()
+        .filter(|segment| segment.source_track.as_deref() == Some("system"))
+        .cloned()
+        .collect::<Vec<_>>();
+    segments
+        .into_iter()
+        .filter(|segment| {
+            if segment.speaker_label.as_deref() != Some("Microphone (original)") {
+                return true;
+            }
+            !system_segments
+                .iter()
+                .any(|system| passages_are_probable_duplicates(segment, system))
+        })
+        .collect()
+}
+
+fn passages_are_probable_duplicates(
+    microphone: &TranscriptSegmentInput,
+    system: &TranscriptSegmentInput,
+) -> bool {
+    let overlap_ms = microphone
+        .end_ms
+        .min(system.end_ms)
+        .saturating_sub(microphone.start_ms.max(system.start_ms));
+    let shorter_duration_ms = microphone
+        .end_ms
+        .saturating_sub(microphone.start_ms)
+        .min(system.end_ms.saturating_sub(system.start_ms));
+    if overlap_ms <= 0
+        || shorter_duration_ms <= 0
+        || overlap_ms.saturating_mul(100) < shorter_duration_ms.saturating_mul(65)
+    {
+        return false;
+    }
+
+    let mut microphone_words = normalized_words(&microphone.text);
+    let mut system_words = normalized_words(&system.text);
+    if microphone_words.len().min(system_words.len()) < 4 {
+        return false;
+    }
+    microphone_words.sort_unstable();
+    system_words.sort_unstable();
+    let mut microphone_index = 0;
+    let mut system_index = 0;
+    let mut matching_words = 0;
+    while microphone_index < microphone_words.len() && system_index < system_words.len() {
+        match microphone_words[microphone_index].cmp(&system_words[system_index]) {
+            std::cmp::Ordering::Less => microphone_index += 1,
+            std::cmp::Ordering::Greater => system_index += 1,
+            std::cmp::Ordering::Equal => {
+                matching_words += 1;
+                microphone_index += 1;
+                system_index += 1;
+            }
+        }
+    }
+    matching_words * 200 >= (microphone_words.len() + system_words.len()) * 82
+}
+
+fn normalized_words(text: &str) -> Vec<String> {
+    text.split(|character: char| !character.is_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .map(str::to_lowercase)
+        .collect()
 }
 
 fn wav_chunks(directory: &Path, track: &str) -> Result<Vec<PathBuf>, String> {
@@ -1091,6 +1163,77 @@ mod tests {
         assert_eq!(grouped[0].text, "This is one continuous thought.");
         assert_eq!(grouped[0].end_ms, 2_500);
         assert_eq!(grouped[2].speaker_label.as_deref(), Some("Meeting audio"));
+    }
+
+    #[test]
+    fn removes_only_strong_time_aligned_system_bleed_from_original_mic() {
+        let original_duplicate = TranscriptSegmentInput {
+            start_ms: 1_100,
+            end_ms: 5_000,
+            speaker_label: Some("Microphone (original)".to_owned()),
+            source_track: Some("mic".to_owned()),
+            text: "We should review the release plan tomorrow morning.".to_owned(),
+        };
+        let system = TranscriptSegmentInput {
+            start_ms: 1_000,
+            end_ms: 4_900,
+            speaker_label: Some("Meeting audio".to_owned()),
+            source_track: Some("system".to_owned()),
+            text: "We should review release plan tomorrow morning".to_owned(),
+        };
+        let local_voice = TranscriptSegmentInput {
+            start_ms: 5_100,
+            end_ms: 7_500,
+            speaker_label: Some("Microphone (original)".to_owned()),
+            source_track: Some("mic".to_owned()),
+            text: "I will send my separate notes after this call.".to_owned(),
+        };
+
+        let filtered = remove_probable_system_bleed(vec![
+            original_duplicate.clone(),
+            system.clone(),
+            local_voice.clone(),
+        ]);
+        assert_eq!(filtered, vec![system, local_voice]);
+
+        let uncertain_mixed_voice = TranscriptSegmentInput {
+            text: format!(
+                "{} I disagree and need another option.",
+                original_duplicate.text
+            ),
+            ..original_duplicate
+        };
+        let preserved =
+            remove_probable_system_bleed(vec![uncertain_mixed_voice.clone(), filtered[0].clone()]);
+        assert_eq!(preserved, vec![uncertain_mixed_voice, filtered[0].clone()]);
+    }
+
+    #[test]
+    fn keeps_short_or_processed_microphone_matches() {
+        let system = TranscriptSegmentInput {
+            start_ms: 0,
+            end_ms: 2_000,
+            speaker_label: Some("Meeting audio".to_owned()),
+            source_track: Some("system".to_owned()),
+            text: "Thank you".to_owned(),
+        };
+        let processed = TranscriptSegmentInput {
+            speaker_label: Some("Microphone (echo-reduced)".to_owned()),
+            source_track: Some("mic".to_owned()),
+            ..system.clone()
+        };
+        let original_short = TranscriptSegmentInput {
+            speaker_label: Some("Microphone (original)".to_owned()),
+            source_track: Some("mic".to_owned()),
+            ..system.clone()
+        };
+
+        let filtered = remove_probable_system_bleed(vec![
+            processed.clone(),
+            original_short.clone(),
+            system.clone(),
+        ]);
+        assert_eq!(filtered, vec![processed, original_short, system]);
     }
 
     #[test]
