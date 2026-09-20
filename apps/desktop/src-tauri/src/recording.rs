@@ -15,6 +15,7 @@ const RECORDING_PREFLIGHT_BYTES: u64 = 512 * 1024 * 1024;
 
 pub struct Recorder {
     active: Mutex<Option<ActiveRecording>>,
+    playback: Mutex<Option<ActivePlayback>>,
 }
 
 struct ActiveRecording {
@@ -25,6 +26,15 @@ struct ActiveRecording {
     paused_at: Option<Instant>,
     paused_total: Duration,
     pause_count: u32,
+}
+
+struct ActivePlayback {
+    meeting_id: String,
+    track: String,
+    start_ms: i64,
+    chunk_count: usize,
+    started: Instant,
+    child: Child,
 }
 
 #[derive(Debug, Serialize)]
@@ -87,8 +97,11 @@ pub struct CompletedRecording {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PlaybackStarted {
-    track: String,
+pub struct PlaybackStatus {
+    active: bool,
+    meeting_id: Option<String>,
+    track: Option<String>,
+    position_ms: i64,
     chunk_count: usize,
 }
 
@@ -115,7 +128,23 @@ impl Recorder {
     pub fn new() -> Self {
         Self {
             active: Mutex::new(None),
+            playback: Mutex::new(None),
         }
+    }
+
+    pub fn stop_playback_for(&self, meeting_id: Option<&str>) -> Result<bool, String> {
+        let mut playback = self
+            .playback
+            .lock()
+            .map_err(|_| "playback state lock is poisoned".to_owned())?;
+        let should_stop = playback
+            .as_ref()
+            .is_some_and(|active| meeting_id.is_none_or(|expected| active.meeting_id == expected));
+        if should_stop {
+            let mut active = playback.take().expect("matching playback exists");
+            stop_child(&mut active.child);
+        }
+        Ok(should_stop)
     }
 }
 
@@ -125,6 +154,11 @@ impl Drop for Recorder {
             if let Some(recording) = active.as_mut() {
                 let _ = signal_tree(&recording.child, "CONT");
                 stop_child(&mut recording.child);
+            }
+        }
+        if let Ok(playback) = self.playback.get_mut() {
+            if let Some(playback) = playback.as_mut() {
+                stop_child(&mut playback.child);
             }
         }
     }
@@ -149,6 +183,7 @@ pub fn start_recording(
     if options.echo_cancellation && options.mode != "both" {
         return Err("Echo cancellation requires microphone + system capture.".to_owned());
     }
+    recorder.stop_playback_for(None)?;
     let mut active = recorder
         .active
         .lock()
@@ -437,10 +472,11 @@ pub fn stop_recording(
 #[tauri::command]
 pub fn play_recording_track(
     database: tauri::State<'_, Database>,
+    recorder: tauri::State<'_, Recorder>,
     meeting_id: String,
     track: String,
     start_ms: Option<i64>,
-) -> Result<PlaybackStarted, String> {
+) -> Result<PlaybackStatus, String> {
     if !matches!(track.as_str(), "mic" | "mic_raw" | "system") {
         return Err("Unsupported recording track.".to_owned());
     }
@@ -469,6 +505,27 @@ pub fn play_recording_track(
         return Err(format!("No {track} audio was captured for this meeting."));
     }
 
+    let mut playback = recorder
+        .playback
+        .lock()
+        .map_err(|_| "playback state lock is poisoned".to_owned())?;
+    if let Some(active) = playback.as_mut() {
+        let running = active
+            .child
+            .try_wait()
+            .map_err(|error| error.to_string())?
+            .is_none();
+        if running
+            && active.meeting_id == meeting_id
+            && active.track == track
+            && active.start_ms == start_ms
+        {
+            return Ok(active_playback_status(active));
+        }
+        stop_child(&mut active.child);
+        *playback = None;
+    }
+
     let playlist_path = recording_path.join(format!("play-{track}.ffconcat"));
     let playlist = chunks
         .iter()
@@ -490,7 +547,7 @@ pub fn play_recording_track(
     if start_ms > 0 {
         command.args(["-ss", &format!("{:.3}", start_ms as f64 / 1000.0)]);
     }
-    command
+    let child = command
         .arg("-i")
         .arg(playlist_path)
         .stdin(Stdio::null())
@@ -498,10 +555,70 @@ pub fn play_recording_track(
         .stderr(Stdio::null())
         .spawn()
         .map_err(|error| format!("Could not start audio playback: {error}"))?;
-    Ok(PlaybackStarted {
+    let active = ActivePlayback {
+        meeting_id,
         track,
+        start_ms,
         chunk_count: chunks.len(),
-    })
+        started: Instant::now(),
+        child,
+    };
+    let status = active_playback_status(&active);
+    *playback = Some(active);
+    Ok(status)
+}
+
+#[tauri::command]
+pub fn playback_status(recorder: tauri::State<'_, Recorder>) -> Result<PlaybackStatus, String> {
+    let mut playback = recorder
+        .playback
+        .lock()
+        .map_err(|_| "playback state lock is poisoned".to_owned())?;
+    let finished = match playback.as_mut() {
+        Some(active) => active
+            .child
+            .try_wait()
+            .map_err(|error| error.to_string())?
+            .is_some(),
+        None => return Ok(inactive_playback_status()),
+    };
+    if finished {
+        *playback = None;
+        return Ok(inactive_playback_status());
+    }
+    Ok(active_playback_status(
+        playback.as_ref().expect("active playback exists"),
+    ))
+}
+
+#[tauri::command]
+pub fn stop_recording_playback(
+    recorder: tauri::State<'_, Recorder>,
+) -> Result<PlaybackStatus, String> {
+    recorder.stop_playback_for(None)?;
+    Ok(inactive_playback_status())
+}
+
+fn active_playback_status(playback: &ActivePlayback) -> PlaybackStatus {
+    PlaybackStatus {
+        active: true,
+        meeting_id: Some(playback.meeting_id.clone()),
+        track: Some(playback.track.clone()),
+        position_ms: playback
+            .start_ms
+            .saturating_add(playback.started.elapsed().as_millis() as i64),
+        chunk_count: playback.chunk_count,
+    }
+}
+
+fn inactive_playback_status() -> PlaybackStatus {
+    PlaybackStatus {
+        active: false,
+        meeting_id: None,
+        track: None,
+        position_ms: 0,
+        chunk_count: 0,
+    }
 }
 
 fn install_capture_script(app_data: &Path) -> Result<PathBuf, String> {
@@ -753,6 +870,34 @@ mod tests {
         assert!(validate_meeting_id("0199-demo_meeting").is_ok());
         assert!(validate_meeting_id("../escape").is_err());
         assert!(validate_meeting_id("").is_err());
+    }
+
+    #[test]
+    fn managed_playback_stops_only_the_requested_meeting() {
+        let recorder = Recorder::new();
+        let child = Command::new("sleep").arg("30").spawn().unwrap();
+        *recorder.playback.lock().unwrap() = Some(ActivePlayback {
+            meeting_id: "meeting-1".to_owned(),
+            track: "mic".to_owned(),
+            start_ms: 0,
+            chunk_count: 1,
+            started: Instant::now(),
+            child,
+        });
+
+        assert!(!recorder.stop_playback_for(Some("another-meeting")).unwrap());
+        assert!(recorder
+            .playback
+            .lock()
+            .unwrap()
+            .as_mut()
+            .unwrap()
+            .child
+            .try_wait()
+            .unwrap()
+            .is_none());
+        assert!(recorder.stop_playback_for(Some("meeting-1")).unwrap());
+        assert!(recorder.playback.lock().unwrap().is_none());
     }
 
     #[test]

@@ -81,8 +81,10 @@ fn reopen_meeting(
 fn delete_meeting(
     app: tauri::AppHandle,
     database: tauri::State<'_, Database>,
+    recorder: tauri::State<'_, Recorder>,
     meeting_id: String,
 ) -> Result<bool, String> {
+    recorder.stop_playback_for(Some(&meeting_id))?;
     if let Some(stored_path) = database
         .meeting_recording_path(&meeting_id)
         .map_err(|error| error.to_string())?
@@ -135,6 +137,8 @@ pub fn run() {
             recording::resume_recording,
             recording::stop_recording,
             recording::play_recording_track,
+            recording::playback_status,
+            recording::stop_recording_playback,
             transcription::transcription_model_status,
             transcription::install_transcription_model,
             transcription::list_transcript,

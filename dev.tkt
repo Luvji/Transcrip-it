@@ -116,6 +116,10 @@ TRANSCRIP-IT - DEVELOPMENT TRACKER
     #- [FT] [TI-0039] Play back separate captured tracks
       [DESC] The first iteration must capture and safely stop a ten-minute meeting, then play both tracks.
       [DESC] Native testing captured and decoded 31.56 seconds of processed mic, raw mic, and system audio without manifest errors; the required ten-minute endurance run remains.
+      [DESC] Native defect evidence (Sep 20, 2026): repeated Play mic/Play system clicks launched seven overlapping ffplay processes with no playing indicator or in-app stop control; playback continued after the desktop shell exited.
+      [DESC] Acceptance: own exactly one playback process, make repeat clicks idempotent, replace the active track when another starts, expose meeting/track/elapsed state, and provide an always-visible Stop audio control.
+      [DESC] Implemented one backend-owned player, idempotent repeat requests, track replacement, automatic stop before recording or deletion, active button labels, and a persistent meeting/track/time playback bar with Stop audio.
+      [DESC] Verified process cleanup against the seven reported players, a managed-child regression test, 30 Rust tests, warning-free Clippy, frontend tests, and the production build; native interaction acceptance remains.
     *- [ENH] [TI-0040] Pass twenty controlled recording scenarios without lost audio
       [DESC] Cover long sessions, silence, disconnects, interruption, low disk space, cross-talk, and poor microphones.
     *- [ENH] [TI-0102] Improve echo cancellation during loud double-talk

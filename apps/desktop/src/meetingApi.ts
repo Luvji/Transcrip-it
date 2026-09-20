@@ -127,6 +127,14 @@ export interface CompletedRecording {
   recordingPath: string;
 }
 
+export interface PlaybackStatus {
+  active: boolean;
+  meetingId: string | null;
+  track: "mic" | "mic_raw" | "system" | null;
+  positionMs: number;
+  chunkCount: number;
+}
+
 export interface StartRecordingOptions {
   mode: "mic" | "system" | "both";
   micSource: string | null;
@@ -171,9 +179,17 @@ export const recordingApi = {
     if (!isTauri()) throw new Error("Audio capture is available in the Transcrip-it desktop app.");
     return invoke("resume_recording", { meetingId });
   },
-  async play(meetingId: string, track: "mic" | "system", startMs = 0): Promise<void> {
+  async play(meetingId: string, track: "mic" | "system", startMs = 0): Promise<PlaybackStatus> {
     if (!isTauri()) throw new Error("Audio playback is available in the Transcrip-it desktop app.");
-    await invoke("play_recording_track", { meetingId, track, startMs });
+    return invoke("play_recording_track", { meetingId, track, startMs });
+  },
+  async playbackStatus(): Promise<PlaybackStatus> {
+    if (!isTauri()) return { active: false, meetingId: null, track: null, positionMs: 0, chunkCount: 0 };
+    return invoke("playback_status");
+  },
+  async stopPlayback(): Promise<PlaybackStatus> {
+    if (!isTauri()) return { active: false, meetingId: null, track: null, positionMs: 0, chunkCount: 0 };
+    return invoke("stop_recording_playback");
   },
 };
 
