@@ -95,7 +95,7 @@ struct WhisperOffsets {
     to: i64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LiveTranscriptLine {
     track_id: String,
@@ -330,8 +330,16 @@ fn run_live_preview(
         .as_millis();
     let mut lines = Vec::new();
     for (source_track, track_id, speaker_label) in [
-        (microphone_track, "mic", "Microphone"),
         ("system", "system", "Meeting audio"),
+        (
+            microphone_track,
+            "mic",
+            if microphone_track == "mic_raw" {
+                "Microphone (original)"
+            } else {
+                "Microphone (echo-reduced)"
+            },
+        ),
     ] {
         let mut effective_source = source_track;
         let mut latest = latest_wav_chunk(&recording_path, effective_source)?;
@@ -346,11 +354,8 @@ fn run_live_preview(
         if duration_ms < 3_000 {
             continue;
         }
-        const WINDOW_MS: u64 = 15_000;
-        let window_index = (duration_ms.saturating_sub(1) / WINDOW_MS).min(3);
-        let window_start_ms = window_index * WINDOW_MS;
-        let window_duration_ms = duration_ms.saturating_sub(window_start_ms).min(WINDOW_MS);
-        if window_duration_ms < 3_000 {
+        let (window_index, window_start_ms, window_duration_ms) = live_preview_window(duration_ms);
+        if window_duration_ms < LIVE_PREVIEW_MINIMUM_MS {
             continue;
         }
         let normalized = preview_directory.join(format!("{track_id}-{run_id}.wav"));
@@ -431,7 +436,40 @@ fn run_live_preview(
         }
         let _ = fs::remove_file(normalized);
     }
+    if microphone_track == "mic_raw" {
+        let system_lines = lines
+            .iter()
+            .filter(|line| line.track_id == "system")
+            .cloned()
+            .collect::<Vec<_>>();
+        lines.retain(|line| {
+            line.track_id != "mic"
+                || !system_lines.iter().any(|system| {
+                    line.chunk_index == system.chunk_index
+                        && line.window_index == system.window_index
+                        && text_word_coverage(&line.text, &system.text) >= 0.50
+                })
+        });
+    }
+    lines.sort_by(|left, right| {
+        left.start_ms
+            .cmp(&right.start_ms)
+            .then_with(|| left.track_id.cmp(&right.track_id))
+    });
     Ok(LiveTranscriptPreview { lines })
+}
+
+const LIVE_PREVIEW_WINDOW_MS: u64 = 8_000;
+const LIVE_PREVIEW_STEP_MS: u64 = 8_000;
+const LIVE_PREVIEW_MINIMUM_MS: u64 = 2_500;
+
+fn live_preview_window(duration_ms: u64) -> (u64, u64, u64) {
+    let window_index = duration_ms.saturating_sub(LIVE_PREVIEW_MINIMUM_MS) / LIVE_PREVIEW_STEP_MS;
+    let start_ms = window_index * LIVE_PREVIEW_STEP_MS;
+    let duration_ms = duration_ms
+        .saturating_sub(start_ms)
+        .min(LIVE_PREVIEW_WINDOW_MS);
+    (window_index, start_ms, duration_ms)
 }
 
 #[tauri::command]
@@ -625,6 +663,7 @@ fn run_transcription(
             segments.extend(transcribe_track(&paths, &recording_path, &track)?);
         }
         segments = remove_probable_system_bleed(segments);
+        segments = merge_tracks_independently(segments);
         segments.sort_by_key(|segment| (segment.start_ms, segment.end_ms));
         database
             .store_source_transcript(meeting_id, &segments)
@@ -788,7 +827,7 @@ fn transcribe_track(
             )
         })
         .collect::<Vec<_>>();
-    Ok(merge_continuous_segments(segments))
+    Ok(segments)
 }
 
 fn merge_continuous_segments(segments: Vec<TranscriptSegmentInput>) -> Vec<TranscriptSegmentInput> {
@@ -835,54 +874,104 @@ fn remove_probable_system_bleed(
             if segment.speaker_label.as_deref() != Some("Microphone (original)") {
                 return true;
             }
-            !system_segments
-                .iter()
-                .any(|system| passages_are_probable_duplicates(segment, system))
+            !is_probable_system_bleed(segment, &system_segments)
         })
         .collect()
 }
 
-fn passages_are_probable_duplicates(
+fn is_probable_system_bleed(
     microphone: &TranscriptSegmentInput,
-    system: &TranscriptSegmentInput,
+    system_segments: &[TranscriptSegmentInput],
 ) -> bool {
-    let overlap_ms = microphone
-        .end_ms
-        .min(system.end_ms)
-        .saturating_sub(microphone.start_ms.max(system.start_ms));
-    let shorter_duration_ms = microphone
-        .end_ms
-        .saturating_sub(microphone.start_ms)
-        .min(system.end_ms.saturating_sub(system.start_ms));
-    if overlap_ms <= 0
-        || shorter_duration_ms <= 0
-        || overlap_ms.saturating_mul(100) < shorter_duration_ms.saturating_mul(65)
-    {
+    let microphone_duration_ms = microphone.end_ms.saturating_sub(microphone.start_ms);
+    if microphone_duration_ms <= 0 {
         return false;
     }
-
-    let mut microphone_words = normalized_words(&microphone.text);
-    let mut system_words = normalized_words(&system.text);
-    if microphone_words.len().min(system_words.len()) < 4 {
+    let mut overlaps = system_segments
+        .iter()
+        .filter_map(|system| {
+            let start = microphone.start_ms.max(system.start_ms);
+            let end = microphone.end_ms.min(system.end_ms);
+            (end > start).then_some((start, end, system.text.as_str()))
+        })
+        .collect::<Vec<_>>();
+    if overlaps.is_empty() {
         return false;
     }
-    microphone_words.sort_unstable();
-    system_words.sort_unstable();
-    let mut microphone_index = 0;
-    let mut system_index = 0;
-    let mut matching_words = 0;
-    while microphone_index < microphone_words.len() && system_index < system_words.len() {
-        match microphone_words[microphone_index].cmp(&system_words[system_index]) {
-            std::cmp::Ordering::Less => microphone_index += 1,
-            std::cmp::Ordering::Greater => system_index += 1,
-            std::cmp::Ordering::Equal => {
-                matching_words += 1;
-                microphone_index += 1;
-                system_index += 1;
-            }
+    overlaps.sort_by_key(|(start, _, _)| *start);
+    let mut covered_ms = 0_i64;
+    let mut covered_until = microphone.start_ms;
+    for (start, end, _) in &overlaps {
+        let uncovered_start = (*start).max(covered_until);
+        if *end > uncovered_start {
+            covered_ms = covered_ms.saturating_add(end.saturating_sub(uncovered_start));
+            covered_until = *end;
         }
     }
-    matching_words * 200 >= (microphone_words.len() + system_words.len()) * 82
+    if covered_ms.saturating_mul(100) < microphone_duration_ms.saturating_mul(50) {
+        return false;
+    }
+    let system_text = overlaps
+        .iter()
+        .map(|(_, _, text)| *text)
+        .collect::<Vec<_>>()
+        .join(" ");
+    text_word_coverage(&microphone.text, &system_text) >= 0.72
+}
+
+fn merge_tracks_independently(
+    segments: Vec<TranscriptSegmentInput>,
+) -> Vec<TranscriptSegmentInput> {
+    let mut tracks: Vec<Vec<TranscriptSegmentInput>> = Vec::new();
+    for segment in segments {
+        if let Some(track) = tracks.iter_mut().find(|track| {
+            track.first().is_some_and(|existing| {
+                existing.source_track == segment.source_track
+                    && existing.speaker_label == segment.speaker_label
+            })
+        }) {
+            track.push(segment);
+        } else {
+            tracks.push(vec![segment]);
+        }
+    }
+    tracks
+        .into_iter()
+        .flat_map(|mut track| {
+            track.sort_by_key(|segment| (segment.start_ms, segment.end_ms));
+            merge_continuous_segments(track)
+        })
+        .collect()
+}
+
+fn text_word_coverage(candidate: &str, reference: &str) -> f64 {
+    let candidate_words = normalized_words(candidate);
+    let reference_words = normalized_words(reference);
+    if candidate_words.len() < 4 || reference_words.is_empty() {
+        return 0.0;
+    }
+    let mut matched_reference = vec![false; reference_words.len()];
+    let mut matching_words = 0;
+    for candidate_word in &candidate_words {
+        if let Some((index, _)) =
+            reference_words
+                .iter()
+                .enumerate()
+                .find(|(index, reference_word)| {
+                    !matched_reference[*index] && words_likely_match(candidate_word, reference_word)
+                })
+        {
+            matched_reference[index] = true;
+            matching_words += 1;
+        }
+    }
+    matching_words as f64 / candidate_words.len() as f64
+}
+
+fn words_likely_match(left: &str, right: &str) -> bool {
+    left == right
+        || (left.chars().count().min(right.chars().count()) >= 4
+            && (left.contains(right) || right.contains(left)))
 }
 
 fn normalized_words(text: &str) -> Vec<String> {
@@ -1206,6 +1295,85 @@ mod tests {
         let preserved =
             remove_probable_system_bleed(vec![uncertain_mixed_voice.clone(), filtered[0].clone()]);
         assert_eq!(preserved, vec![uncertain_mixed_voice, filtered[0].clone()]);
+    }
+
+    #[test]
+    fn removes_fast_model_bleed_before_grouping_without_losing_local_speech() {
+        let system = TranscriptSegmentInput {
+            start_ms: 0,
+            end_ms: 15_000,
+            speaker_label: Some("Meeting audio".to_owned()),
+            source_track: Some("system".to_owned()),
+            text: "Very lukewarm looked like India was his Zimbabwe only one person was winning dude this is a true story okay when my mom married my dad he told her that he had two plots of land which he obviously liked".to_owned(),
+        };
+        let recognized_bleed = TranscriptSegmentInput {
+            start_ms: 0,
+            end_ms: 9_040,
+            speaker_label: Some("Microphone (original)".to_owned()),
+            source_track: Some("mic".to_owned()),
+            text:
+                "When he looked warm he looked like India or Zimbabwe only one person was winning"
+                    .to_owned(),
+        };
+        let local_voice = TranscriptSegmentInput {
+            start_ms: 50_000,
+            end_ms: 56_000,
+            speaker_label: Some("Microphone (original)".to_owned()),
+            source_track: Some("mic".to_owned()),
+            text: "Hello this is the second test of the transcript application".to_owned(),
+        };
+
+        let filtered = remove_probable_system_bleed(vec![
+            recognized_bleed,
+            local_voice.clone(),
+            system.clone(),
+        ]);
+        assert_eq!(filtered, vec![local_voice, system]);
+    }
+
+    #[test]
+    fn tolerates_fast_model_timing_drift_at_the_end_of_system_speech() {
+        let system = TranscriptSegmentInput {
+            start_ms: 40_000,
+            end_ms: 48_000,
+            speaker_label: Some("Meeting audio".to_owned()),
+            source_track: Some("system".to_owned()),
+            text: "That person never told us that he is non vegetarian".to_owned(),
+        };
+        let delayed_microphone_bleed = TranscriptSegmentInput {
+            start_ms: 45_000,
+            end_ms: 50_000,
+            speaker_label: Some("Microphone (original)".to_owned()),
+            source_track: Some("mic".to_owned()),
+            text: "That he is non vegetarian".to_owned(),
+        };
+
+        assert_eq!(
+            remove_probable_system_bleed(vec![delayed_microphone_bleed, system.clone()]),
+            vec![system]
+        );
+    }
+
+    #[test]
+    fn live_preview_windows_continue_past_the_first_45_seconds() {
+        assert_eq!(live_preview_window(3_000), (0, 0, 3_000));
+        assert_eq!(live_preview_window(8_000), (0, 0, 8_000));
+        assert_eq!(live_preview_window(11_000), (1, 8_000, 3_000));
+        assert_eq!(live_preview_window(47_000), (5, 40_000, 7_000));
+        assert_eq!(live_preview_window(59_000), (7, 56_000, 3_000));
+    }
+
+    #[test]
+    fn live_preview_recognizes_imperfect_short_window_bleed() {
+        let microphone = "When you look warm, look like India has a Zimbabwe only one day.";
+        let system = "Very lukewarm, look like India also Zimbabwe only one.";
+        assert!(text_word_coverage(microphone, system) >= 0.50);
+        assert!(
+            text_word_coverage(
+                "I will send the revised project notes after this call",
+                system
+            ) < 0.50
+        );
     }
 
     #[test]

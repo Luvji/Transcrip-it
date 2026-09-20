@@ -137,6 +137,9 @@ TRANSCRIP-IT - DEVELOPMENT TRACKER
       [DESC] Continue with conservative transcript-level bleed suppression: remove an original-microphone passage only when a sufficiently long system passage strongly matches it in both time and normalized wording, preserving mixed or uncertain microphone speech.
       [DESC] Implemented post-transcription de-duplication with four-word, 65%-time-overlap, and 82%-word-similarity minimums; only original-microphone passages are candidates, while short acknowledgements, processed-mic passages, non-overlapping text, and mixed local speech remain intact.
       [DESC] Verified strong-match removal and conservative preservation with focused regressions, 35 Rust tests, warning-free Clippy, frontend tests, repository structure checks, and the production build; native transcript review remains required.
+      [DESC] Native retest evidence (Sep 20, 2026, meeting "test2", Fast English): the final transcript still duplicates approximately 0:00-0:48 across Meeting audio and Microphone (original); the original-microphone recognition differs enough that passage-level 82% symmetric similarity did not remove it.
+      [DESC] Refine de-duplication before passage grouping using microphone-word coverage across all overlapping system segments, so pure bleed can be removed without discarding the local speech that begins near 0:50 in the same currently grouped passage.
+      [DESC] Implemented pre-grouping bleed classification requiring at least four microphone words, 50% time coverage, and 72% fuzzy microphone-word coverage from overlapping system segments. Replaying the classifier over the actual test2 Whisper JSON removes all pure microphone bleed segments from 0:00-0:50 while preserving local speech from 0:50 onward, including the 0:56-1:06 mixed-overlap segment.
 
 *- [EPIC] [TI-0041] Media import and preparation pipeline
   [DESC] Safely convert recordings and imported media into consistent, traceable processing inputs.
@@ -232,6 +235,7 @@ TRANSCRIP-IT - DEVELOPMENT TRACKER
     *- [ENH] [TI-0082] Exclude meeting content from logs and crash reports
     *- [FT] [TI-0083] Enforce retention limits and permanent deletion
       [DESC] Explain and verify removal of metadata, transcripts, and stored media.
+      [DESC] Product direction (Sep 20, 2026): keep audio during the current quality-validation phase, then offer deletion after a final transcript completes to reduce storage use; retain audio only when the user explicitly chooses it and explain that timestamp playback and retranscription will no longer be available.
     *- [ENH] [TI-0084] Review model and dependency licenses
       [DESC] Resolve distribution and commercial-use constraints before packaging.
     *- [ENH] [TI-0085] Verify local-only network behavior
@@ -271,6 +275,10 @@ TRANSCRIP-IT - DEVELOPMENT TRACKER
       [DESC] Acceptance: bound preview work to short windows off the command thread, retain preview lines across navigation, suppress low-energy/repetitive hallucinations, and automatically expose interrupted audio for playback and final transcription.
       [DESC] Implemented bounded 15-second preview windows on blocking workers, session-owned navigation-safe preview state, PCM speech-energy gating, repeated-phrase rejection, asynchronous final transcription, and revision-safe interrupted-job recovery.
       [DESC] Verified with the preserved test1 audio (expected opening sentence in 2.88 seconds), 29 Rust tests, Clippy with warnings denied, frontend tests/build, SQLite integrity, and a native recovery launch; a fresh multi-minute recording remains for native acceptance.
+      [DESC] Native retest evidence (Sep 20, 2026, meeting "test2"): live transcription still needs lower latency and improved draft accuracy; the interface should explicitly explain that live text is provisional and final transcription is reprocessed after recording.
+      [DESC] Code review found each one-minute chunk capped at preview window index 3, causing the same 15-second slice to be reprocessed after 45 seconds until chunk rotation; microphone and system previews also run sequentially and can display duplicated bleed.
+      [DESC] Replaced the capped windows with continuing non-overlapping eight-second windows, reduced the post-update delay from five to 2.5 seconds, prioritized the system pass, added fuzzy same-window live bleed suppression, identified original versus echo-reduced microphone labels, and added a visible provisional accuracy/delay warning.
+      [DESC] On preserved test2 audio, an eight-second Fast-model system pass took 1.60 seconds and the microphone pass took 1.81 seconds (approximately 5-6 seconds per two-track refresh including delay). Verified continuing windows beyond 45 seconds, imperfect short-window bleed matching, 39 Rust tests, warning-free Clippy, frontend tests, structure checks, and the production build; a native multi-minute acceptance retest remains.
     *- [FT] [TI-0097] Add Windows and macOS platform support
       [DESC] Begin after the Linux workflow and audio interfaces stabilize.
     *- [FT] [TI-0098] Add platform meeting bots

@@ -4,7 +4,7 @@ Transcrip It is a planned Linux-first, local-first desktop meeting assistant. It
 
 ## Current status
 
-The project has completed its initial audio-capture feasibility spike and now includes a persistent local meeting library with consent-gated microphone/system recording, safe controls, provisional live transcription, separate-track playback, selectable offline English accuracy packs, grouped channel-attributed transcripts, conservative system-bleed de-duplication, local transcript search, and open-format export. The development backlog is maintained in [`dev.tkt`](dev.tkt), based on `Owned_AI_Meeting_Assistant_Project_Plan (1).docx`.
+The project has completed its initial audio-capture feasibility spike and now includes a persistent local meeting library with consent-gated microphone/system recording, safe controls, bounded short-window live transcription with provisional-result guidance, separate-track playback, selectable offline English accuracy packs, grouped channel-attributed transcripts, conservative system-bleed de-duplication before passage grouping, local transcript search, and open-format export. The development backlog is maintained in [`dev.tkt`](dev.tkt), based on `Owned_AI_Meeting_Assistant_Project_Plan (1).docx`.
 
 The responsive shell under [`apps/desktop`](apps/desktop) uses Tauri 2, React, TypeScript, Vite, and Tailwind CSS. Its Rust backend initializes a local SQLite database with versioned migrations for meetings, transcript segments, jobs, actions, and settings. Linux capture, playback, FFmpeg, and Whisper workers are tied to the desktop process so a shell crash cannot leave background audio or transcription work running; completed manifests restore their duration during restart recovery.
 
@@ -20,6 +20,8 @@ The in-progress feasibility CLI lives under `spikes/audio-capture/`. List availa
 - Experimental Malayalam, Hindi, Japanese, and mixed-language support delivered separately from the supported English workflow.
 
 The MVP uses WebRTC acoustic echo cancellation when capturing through speakers. A headset is recommended for best separation because loud system playback during simultaneous speech can suppress the local microphone; improving this double-talk behavior is planned after the working MVP.
+
+Audio is retained during the current quality-validation phase so users can replay evidence and retry transcription. A future opt-in retention mode may remove audio after a successful final transcript to save storage; that choice will clearly disable timestamp playback and future retranscription.
 
 Live transcription, Windows and macOS support, meeting bots, mobile capture, cloud collaboration, and calendar joining remain deferred until the core recording and processing pipeline meets its quality gates.
 
