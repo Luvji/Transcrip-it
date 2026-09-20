@@ -230,8 +230,10 @@ TRANSCRIP-IT - DEVELOPMENT TRACKER
   [DESC] Expose understandable controls for local processing, storage, and troubleshooting.
 
     *- [FT] [TI-0074] Configure models, language, storage, retention, and privacy mode
-    *- [FT] [TI-0075] Show diagnostics, storage usage, model status, and job errors
+    $- [FT] [TI-0075] Show diagnostics, storage usage, model status, and job errors
       [DESC] Diagnostic output must exclude transcript content and sensitive meeting data.
+      [DESC] Settings now reports total local storage, recording/database usage, meeting health, installed model status, and recent failed-job kind/error codes with a manual refresh action.
+      [DESC] Diagnostics deliberately omit titles, transcript text, error messages, paths, and meeting identifiers. Backend regression coverage proves stored sensitive text is absent from serialized diagnostic output.
     $- [FT] [TI-0076] Guide first-run model installation and setup
       [DESC] Settings now explains the one-time local model download, expected wait, model size, local-processing boundary, and that Fast English enables live previews. Installation exposes an explicit in-progress state and warns users to keep the app open.
       [DESC] The home view detects a missing Fast model and offers a direct setup action without blocking recording. UI regression coverage verifies the setup guidance.

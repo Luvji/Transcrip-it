@@ -15,6 +15,36 @@ use std::{
 use tauri::Manager;
 use transcription::Transcriber;
 
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceDiagnostics {
+    storage_bytes: u64,
+    recording_bytes: u64,
+    database_bytes: u64,
+    #[serde(flatten)]
+    database: database::DatabaseDiagnostics,
+}
+
+fn directory_size(path: &Path) -> io::Result<u64> {
+    if !path.exists() {
+        return Ok(0);
+    }
+    let mut bytes = 0_u64;
+    for entry in fs::read_dir(path)? {
+        let entry = entry?;
+        let metadata = fs::symlink_metadata(entry.path())?;
+        if metadata.file_type().is_symlink() {
+            continue;
+        }
+        bytes = bytes.saturating_add(if metadata.is_dir() {
+            directory_size(&entry.path())?
+        } else {
+            metadata.len()
+        });
+    }
+    Ok(bytes)
+}
+
 #[derive(Debug)]
 struct SingleInstanceGuard {
     _file: File,
@@ -44,6 +74,25 @@ fn acquire_single_instance(path: &Path) -> io::Result<SingleInstanceGuard> {
 #[tauri::command]
 fn database_status(database: tauri::State<'_, Database>) -> Result<DatabaseStatus, String> {
     database.status().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn workspace_diagnostics(
+    app: tauri::AppHandle,
+    database: tauri::State<'_, Database>,
+) -> Result<WorkspaceDiagnostics, String> {
+    let app_data = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?;
+    let database_path = app_data.join("transcrip-it.sqlite3");
+    Ok(WorkspaceDiagnostics {
+        storage_bytes: directory_size(&app_data).map_err(|error| error.to_string())?,
+        recording_bytes: directory_size(&app_data.join("recordings"))
+            .map_err(|error| error.to_string())?,
+        database_bytes: fs::metadata(database_path).map_or(0, |metadata| metadata.len()),
+        database: database.diagnostics().map_err(|error| error.to_string())?,
+    })
 }
 
 #[tauri::command]
@@ -165,6 +214,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             database_status,
+            workspace_diagnostics,
             create_meeting,
             list_meetings,
             rename_meeting,
@@ -225,5 +275,19 @@ mod tests {
         assert_eq!(second.kind(), io::ErrorKind::AlreadyExists);
         drop(first);
         fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn directory_size_counts_files_and_ignores_symlinks() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("transcrip-it-size-{unique}"));
+        fs::create_dir_all(root.join("nested")).unwrap();
+        fs::write(root.join("first"), [0_u8; 7]).unwrap();
+        fs::write(root.join("nested/second"), [0_u8; 11]).unwrap();
+        assert_eq!(directory_size(&root).unwrap(), 18);
+        fs::remove_dir_all(root).unwrap();
     }
 }

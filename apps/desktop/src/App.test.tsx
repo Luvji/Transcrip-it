@@ -36,6 +36,8 @@ describe("desktop workspace", () => {
     await user.click(screen.getAllByRole("button", { name: "Settings" })[0]);
     expect(screen.getByText("Install a local transcription model")).toBeInTheDocument();
     expect(screen.getByText(/Fast English also enables the live preview/)).toBeInTheDocument();
+    expect(await screen.findByText("Local storage used")).toBeInTheDocument();
+    expect(screen.getByText("No failed background jobs recorded")).toBeInTheDocument();
     await user.selectOptions(screen.getByRole("combobox", { name: "Transcription quality" }), "balanced");
     await user.selectOptions(screen.getByRole("combobox", { name: "Microphone transcript source" }), "mic");
     await user.click(screen.getByRole("button", { name: "Save settings" }));

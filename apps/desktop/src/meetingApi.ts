@@ -220,6 +220,22 @@ export interface TranscriptionModelStatus {
   engineVersion: string;
 }
 
+export interface WorkspaceDiagnostics {
+  storageBytes: number;
+  recordingBytes: number;
+  databaseBytes: number;
+  meetingCount: number;
+  failedMeetingCount: number;
+  recentJobErrors: { jobKind: string; errorCode: string; updatedAt: string }[];
+}
+
+export const diagnosticsApi = {
+  async status(): Promise<WorkspaceDiagnostics> {
+    if (!isTauri()) return { storageBytes: 0, recordingBytes: 0, databaseBytes: 0, meetingCount: 0, failedMeetingCount: 0, recentJobErrors: [] };
+    return invoke("workspace_diagnostics");
+  },
+};
+
 export type TranscriptionModelPack = "fast" | "balanced" | "accuracy";
 
 export interface TranscriptSearchResult {

@@ -121,6 +121,22 @@ pub struct DatabaseStatus {
     schema_version: i64,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagnosticJobError {
+    job_kind: String,
+    error_code: String,
+    updated_at: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseDiagnostics {
+    meeting_count: i64,
+    failed_meeting_count: i64,
+    recent_job_errors: Vec<DiagnosticJobError>,
+}
+
 impl Database {
     pub fn open(path: &Path) -> Result<Self, DatabaseError> {
         if let Some(parent) = path.parent() {
@@ -153,6 +169,36 @@ impl Database {
         Ok(DatabaseStatus {
             ready: true,
             schema_version,
+        })
+    }
+
+    pub fn diagnostics(&self) -> Result<DatabaseDiagnostics, DatabaseError> {
+        let connection = self.connection()?;
+        let meeting_count =
+            connection.query_row("SELECT COUNT(*) FROM meetings", [], |row| row.get(0))?;
+        let failed_meeting_count = connection.query_row(
+            "SELECT COUNT(*) FROM meetings WHERE lifecycle_state = 'failed'",
+            [],
+            |row| row.get(0),
+        )?;
+        let mut statement = connection.prepare(
+            "SELECT job_kind, COALESCE(error_code, 'unknown'), updated_at
+             FROM jobs WHERE state = 'failed'
+             ORDER BY updated_at DESC, id LIMIT 5",
+        )?;
+        let recent_job_errors = statement
+            .query_map([], |row| {
+                Ok(DiagnosticJobError {
+                    job_kind: row.get(0)?,
+                    error_code: row.get(1)?,
+                    updated_at: row.get(2)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(DatabaseDiagnostics {
+            meeting_count,
+            failed_meeting_count,
+            recent_job_errors,
         })
     }
 
@@ -257,6 +303,27 @@ mod tests {
             })
             .unwrap();
         assert_eq!(migration_count, 8);
+    }
+
+    #[test]
+    fn diagnostics_exclude_meeting_content_and_job_messages() {
+        let database = Database::open_in_memory().unwrap();
+        let connection = database.connection().unwrap();
+        connection.execute("INSERT INTO meetings (id, title, lifecycle_state) VALUES ('meeting-1', 'Secret title', 'failed')", []).unwrap();
+        connection.execute(
+            "INSERT INTO jobs (id, idempotency_key, meeting_id, job_kind, state, error_code, error_message)
+             VALUES ('job-1', 'diagnostic-job', 'meeting-1', 'transcription', 'failed', 'engine_failed', 'Secret transcript text')",
+            [],
+        ).unwrap();
+        drop(connection);
+
+        let diagnostics = database.diagnostics().unwrap();
+        let serialized = serde_json::to_string(&diagnostics).unwrap();
+        assert_eq!(diagnostics.meeting_count, 1);
+        assert_eq!(diagnostics.failed_meeting_count, 1);
+        assert_eq!(diagnostics.recent_job_errors.len(), 1);
+        assert!(!serialized.contains("Secret title"));
+        assert!(!serialized.contains("Secret transcript text"));
     }
 
     #[test]

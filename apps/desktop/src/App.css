@@ -223,6 +223,18 @@ h1 { margin-bottom: 6px; color: var(--ink); font-size: clamp(29px, 3.2vw, 39px);
 .setup-step { padding: 5px 9px; border-radius: 12px; color: #9b4650; background: #fff0f1; font-size: 8px; font-weight: 800; text-transform: uppercase; }
 .setup-step.complete { color: #397b59; background: #e5f5ec; }
 .install-progress { margin: -9px 0 0; padding: 10px 12px; border-radius: 8px; color: #684eaa; background: #f6f2fc; font-size: 9px; }
+.diagnostics-panel { display: grid; gap: 13px; padding: 15px; border: 1px solid var(--line); border-radius: 10px; background: #fbfafc; }
+.diagnostics-heading { display: flex; align-items: center; justify-content: space-between; gap: 15px; }
+.diagnostics-heading > div { display: grid; gap: 3px; }
+.diagnostics-heading strong { font-size: 11px; }
+.diagnostics-heading span { color: #89838f; font-size: 9px; }
+.diagnostics-heading button { padding: 6px 8px; border: 0; border-radius: 6px; color: #6d52ad; background: #eee8f8; cursor: pointer; font-size: 8px; font-weight: 700; }
+.diagnostic-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.diagnostic-grid > div { min-width: 0; display: grid; gap: 4px; padding: 11px; border-radius: 8px; background: #fff; }
+.diagnostic-grid span { color: #89838f; font-size: 8px; text-transform: uppercase; }
+.diagnostic-grid strong { font-size: 12px; }
+.diagnostic-grid small, .diagnostics-loading { overflow-wrap: anywhere; color: #89838f; font-size: 8px; line-height: 1.5; }
+.diagnostics-loading { margin: 0; }
 .setting-row { display: flex; align-items: center; justify-content: space-between; gap: 30px; padding-bottom: 18px; border-bottom: 1px solid var(--line); }
 .setting-row > div, .privacy-setting > div { display: grid; gap: 4px; }
 .setting-row strong, .privacy-setting strong { font-size: 11px; }
