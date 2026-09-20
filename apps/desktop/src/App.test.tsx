@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
-import App from "./App";
+import App, { latestLiveTranscriptLines } from "./App";
 
 describe("desktop workspace", () => {
   beforeEach(() => localStorage.clear());
@@ -39,5 +39,22 @@ describe("desktop workspace", () => {
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Settings saved"));
     expect(localStorage.getItem("transcrip-it.transcription-pack")).toBe("balanced");
     expect(localStorage.getItem("transcrip-it.microphone-track")).toBe("mic");
+  });
+
+  it("keeps the newest live transcript passages visible", () => {
+    const lines = Array.from({ length: 5 }, (_, index) => ({
+      trackId: "mic" as const,
+      speakerLabel: "Microphone (original)",
+      chunkIndex: 0,
+      windowIndex: index,
+      startMs: index * 8_000,
+      text: `Passage ${index}`,
+    }));
+
+    expect(latestLiveTranscriptLines(lines).map((line) => line.startMs)).toEqual([
+      16_000,
+      24_000,
+      32_000,
+    ]);
   });
 });

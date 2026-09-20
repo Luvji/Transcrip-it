@@ -237,6 +237,7 @@ export interface LiveTranscriptLine {
 
 export interface LiveTranscriptPreview {
   lines: LiveTranscriptLine[];
+  checkedThroughMs: number;
 }
 
 export const transcriptionApi = {
@@ -262,7 +263,7 @@ export const transcriptionApi = {
     return invoke("delete_transcript", { meetingId });
   },
   async livePreview(meetingId: string, microphoneTrack: MicrophoneTrack): Promise<LiveTranscriptPreview> {
-    if (!isTauri()) return { lines: [] };
+    if (!isTauri()) return { lines: [], checkedThroughMs: 0 };
     return invoke("live_transcript_preview", { meetingId, microphoneTrack });
   },
   async renameSpeaker(meetingId: string, currentLabel: string, newLabel: string): Promise<number> {

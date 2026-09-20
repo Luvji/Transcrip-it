@@ -94,13 +94,14 @@ TRANSCRIP-IT - DEVELOPMENT TRACKER
     $- [FT] [TI-0031] Require consent confirmation before recording
       [DESC] Show an unambiguous recording state and remind users of consent and policy responsibilities.
       [DESC] Block capture until explicit acknowledgement and show distinct live, paused, stopped, and failure states.
-    #- [ENH] [TI-0032] Recover an interrupted meeting lifecycle on restart
+    ^- [ENH] [TI-0032] Recover an interrupted meeting lifecycle on restart
       [DESC] Reopen unfinished recordings from the last safe checkpoint without corrupting completed work.
       [DESC] Safely stop child capture on shutdown, audit interrupted lifecycle recovery, expose preserved chunks, and allow transcript retry after restart.
       [DESC] Native crash evidence (Sep 20, 2026): capture and Whisper child processes survived the desktop shell, leaving an 86m 18s orphan recording and continued CPU/audio work until manually stopped.
       [DESC] Acceptance: every long-running capture, playback, FFmpeg, and Whisper child must terminate if the desktop parent dies, including the fork-to-exec race, while normal safe-stop and recovery continue to preserve finalized audio.
       [DESC] Implemented Linux parent-death signaling with a post-install parent-PID race check for capture, playback, live/final FFmpeg, and live/final Whisper workers; the capture worker receives SIGTERM and finalizes its manifest and WAV chunks through its existing termination handler.
       [DESC] Restart recovery now restores missing meeting duration from a completed manifest before moving interrupted lifecycle states to failed; verified with a 5,178.125-second manifest fixture, an actual parent-exit worker test, 33 Rust tests, warning-free Clippy, frontend tests, structure checks, and the production build. Native forced-crash interaction acceptance remains.
+      [DESC] Failed native retest evidence (Sep 20, 2026, meeting "test3"): capture workers stopped and 3m 40s of synchronized chunks were preserved after the desktop closed, but the manifest remained in recording state and the database still reported recording until restart recovery. Recovery must derive duration from preserved chunks when graceful manifest finalization is interrupted.
 
 *- [EPIC] [TI-0033] Reliable microphone and system-audio capture
   [DESC] Capture meeting audio in recoverable chunks without silently losing data.
@@ -279,6 +280,11 @@ TRANSCRIP-IT - DEVELOPMENT TRACKER
       [DESC] Code review found each one-minute chunk capped at preview window index 3, causing the same 15-second slice to be reprocessed after 45 seconds until chunk rotation; microphone and system previews also run sequentially and can display duplicated bleed.
       [DESC] Replaced the capped windows with continuing non-overlapping eight-second windows, reduced the post-update delay from five to 2.5 seconds, prioritized the system pass, added fuzzy same-window live bleed suppression, identified original versus echo-reduced microphone labels, and added a visible provisional accuracy/delay warning.
       [DESC] On preserved test2 audio, an eight-second Fast-model system pass took 1.60 seconds and the microphone pass took 1.81 seconds (approximately 5-6 seconds per two-track refresh including delay). Verified continuing windows beyond 45 seconds, imperfect short-window bleed matching, 39 Rust tests, warning-free Clippy, frontend tests, structure checks, and the production build; a native multi-minute acceptance retest remains.
+      [DESC] Native retest evidence (Sep 20, 2026, screencast at /home/jihadali/Videos/Screencasts/Screencast from 20-09-26 07:57:30 PM IST.webm): meeting "test3" reaches 2:10 while the visible live transcript remains at 0:00, 0:08, and 0:16 and the header repeatedly shows "Updating locally".
+      [DESC] The test3 capture preserved 3m 40s across four synchronized chunks. Direct Fast-model replay successfully transcribed later system windows at 0:32, 0:40, and 0:48, isolating the observed failure to stale/clipped presentation rather than capture or Whisper inference.
+      [DESC] Acceptance: keep the newest live passages visible, expose the latest audio timestamp checked even when a window yields no text, and distinguish active processing from a caught-up preview.
+      [DESC] Implemented checkedThroughMs progress from the latest readable chunk, newest-three passage rendering with retained-history count, caught-up/processing/delayed status labels, a 20-second lag warning, and a no-clear-speech state that still reports checked audio progress.
+      [DESC] Verified later test3 windows directly with the installed Fast model, 40 Rust tests, four frontend tests, warning-free Clippy, repository structure checks, and the production build; native visual acceptance remains.
     *- [FT] [TI-0097] Add Windows and macOS platform support
       [DESC] Begin after the Linux workflow and audio interfaces stabilize.
     *- [FT] [TI-0098] Add platform meeting bots

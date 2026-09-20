@@ -110,6 +110,7 @@ pub struct LiveTranscriptLine {
 #[serde(rename_all = "camelCase")]
 pub struct LiveTranscriptPreview {
     lines: Vec<LiveTranscriptLine>,
+    checked_through_ms: u64,
 }
 
 #[tauri::command]
@@ -329,6 +330,7 @@ fn run_live_preview(
         .map_err(|error| error.to_string())?
         .as_millis();
     let mut lines = Vec::new();
+    let mut checked_through_ms = 0_u64;
     for (source_track, track_id, speaker_label) in [
         ("system", "system", "Meeting audio"),
         (
@@ -351,6 +353,11 @@ fn run_live_preview(
             continue;
         };
         let duration_ms = wav_duration_ms(&chunk)?;
+        checked_through_ms = checked_through_ms.max(
+            chunk_index
+                .saturating_mul(60_000)
+                .saturating_add(duration_ms),
+        );
         if duration_ms < 3_000 {
             continue;
         }
@@ -456,7 +463,10 @@ fn run_live_preview(
             .cmp(&right.start_ms)
             .then_with(|| left.track_id.cmp(&right.track_id))
     });
-    Ok(LiveTranscriptPreview { lines })
+    Ok(LiveTranscriptPreview {
+        lines,
+        checked_through_ms,
+    })
 }
 
 const LIVE_PREVIEW_WINDOW_MS: u64 = 8_000;
@@ -1361,6 +1371,16 @@ mod tests {
         assert_eq!(live_preview_window(11_000), (1, 8_000, 3_000));
         assert_eq!(live_preview_window(47_000), (5, 40_000, 7_000));
         assert_eq!(live_preview_window(59_000), (7, 56_000, 3_000));
+    }
+
+    #[test]
+    fn live_preview_serializes_checked_audio_progress() {
+        let value = serde_json::to_value(LiveTranscriptPreview {
+            lines: Vec::new(),
+            checked_through_ms: 128_400,
+        })
+        .unwrap();
+        assert_eq!(value["checkedThroughMs"], 128_400);
     }
 
     #[test]
