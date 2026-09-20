@@ -50,6 +50,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "corrected_transcript_search",
         sql: include_str!("migrations/0007_corrected_transcript_search.sql"),
     },
+    Migration {
+        version: 8,
+        name: "transcript_source_track",
+        sql: include_str!("migrations/0008_transcript_source_track.sql"),
+    },
 ];
 
 mod evidence;
@@ -235,7 +240,7 @@ mod tests {
             assert!(exists, "expected table {table}");
         }
 
-        assert_eq!(current_schema_version(&connection).unwrap(), 7);
+        assert_eq!(current_schema_version(&connection).unwrap(), 8);
     }
 
     #[test]
@@ -251,7 +256,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(migration_count, 7);
+        assert_eq!(migration_count, 8);
     }
 
     #[test]
@@ -298,7 +303,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(upgraded, ("job-1".to_owned(), "queued".to_owned(), None));
-        assert_eq!(current_schema_version(&connection).unwrap(), 7);
+        assert_eq!(current_schema_version(&connection).unwrap(), 8);
     }
 
     #[test]

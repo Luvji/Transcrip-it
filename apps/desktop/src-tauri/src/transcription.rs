@@ -14,12 +14,14 @@ use tauri::Manager;
 
 pub struct Transcriber {
     active: Mutex<Option<String>>,
+    preview_active: Mutex<bool>,
 }
 
 impl Transcriber {
     pub fn new() -> Self {
         Self {
             active: Mutex::new(None),
+            preview_active: Mutex::new(false),
         }
     }
 }
@@ -28,9 +30,49 @@ impl Transcriber {
 #[serde(rename_all = "camelCase")]
 pub struct TranscriptionModelStatus {
     installed: bool,
+    pack_id: String,
     pack: String,
     model_bytes: Option<u64>,
     engine_version: String,
+}
+
+#[derive(Clone, Copy)]
+struct ModelSpec {
+    id: &'static str,
+    label: &'static str,
+    filename: &'static str,
+    download_url: &'static str,
+    sha1: &'static str,
+}
+
+fn model_spec(pack: &str) -> Result<ModelSpec, String> {
+    match pack {
+        "fast" => Ok(ModelSpec {
+            id: "fast",
+            label: "Fast English",
+            filename: "ggml-base.en.bin",
+            download_url:
+                "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin",
+            sha1: "137c40403d78fd54d454da0f9bd998f78703390c",
+        }),
+        "balanced" => Ok(ModelSpec {
+            id: "balanced",
+            label: "Balanced English",
+            filename: "ggml-small.en.bin",
+            download_url:
+                "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin",
+            sha1: "db8a495a91d927739e50b3fc1cc4c6b8f6c2d022",
+        }),
+        "accuracy" => Ok(ModelSpec {
+            id: "accuracy",
+            label: "Accuracy English",
+            filename: "ggml-medium.en.bin",
+            download_url:
+                "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en.bin",
+            sha1: "8c30f0e44ce9560643ebd10bbe50cd20eafd3723",
+        }),
+        _ => Err(format!("Unknown transcription model pack: {pack}")),
+    }
 }
 
 #[derive(Deserialize)]
@@ -50,11 +92,29 @@ struct WhisperOffsets {
     to: i64,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveTranscriptLine {
+    track_id: String,
+    speaker_label: String,
+    chunk_index: u64,
+    start_ms: u64,
+    text: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveTranscriptPreview {
+    lines: Vec<LiveTranscriptLine>,
+}
+
 #[tauri::command]
 pub fn transcription_model_status(
     app: tauri::AppHandle,
+    pack: Option<String>,
 ) -> Result<TranscriptionModelStatus, String> {
-    let paths = model_paths(&app)?;
+    let spec = model_spec(pack.as_deref().unwrap_or("fast"))?;
+    let paths = model_paths(&app, spec)?;
     let installed = paths.binary.is_file() && paths.model.is_file();
     let model_bytes = fs::metadata(&paths.model)
         .ok()
@@ -72,7 +132,8 @@ pub fn transcription_model_status(
     };
     Ok(TranscriptionModelStatus {
         installed,
-        pack: "Balanced English".to_owned(),
+        pack_id: spec.id.to_owned(),
+        pack: spec.label.to_owned(),
         model_bytes,
         engine_version,
     })
@@ -81,15 +142,17 @@ pub fn transcription_model_status(
 #[tauri::command]
 pub fn install_transcription_model(
     app: tauri::AppHandle,
+    pack: String,
 ) -> Result<TranscriptionModelStatus, String> {
-    let paths = model_paths(&app)?;
-    let root = paths
-        .binary
-        .ancestors()
-        .nth(4)
-        .ok_or_else(|| "Invalid transcription engine path.".to_owned())?;
-    fs::create_dir_all(root).map_err(|error| format!("Could not create model storage: {error}"))?;
-    let source = root.join("whisper.cpp");
+    let spec = model_spec(&pack)?;
+    let paths = model_paths(&app, spec)?;
+    let source = paths.root.as_path();
+    fs::create_dir_all(
+        source
+            .parent()
+            .ok_or_else(|| "Invalid model storage path.".to_owned())?,
+    )
+    .map_err(|error| format!("Could not create model storage: {error}"))?;
     if !source.join(".git").exists() {
         command_success(
             Command::new("git")
@@ -101,7 +164,7 @@ pub fn install_transcription_model(
                     "v1.9.4",
                     "https://github.com/ggml-org/whisper.cpp.git",
                 ])
-                .arg(&source),
+                .arg(source),
             "download the transcription engine",
         )?;
     }
@@ -110,7 +173,7 @@ pub fn install_transcription_model(
         command_success(
             Command::new("cmake")
                 .arg("-S")
-                .arg(&source)
+                .arg(source)
                 .arg("-B")
                 .arg(&build)
                 .args([
@@ -141,8 +204,8 @@ pub fn install_transcription_model(
             Command::new("curl")
                 .args(["-L", "--fail", "--retry", "3", "-o"])
                 .arg(&temporary)
-                .arg("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin"),
-            "download the Balanced English model",
+                .arg(spec.download_url),
+            &format!("download the {} model", spec.label),
         )?;
         let checksum = Command::new("sha1sum")
             .arg(&temporary)
@@ -153,13 +216,13 @@ pub fn install_transcription_model(
             .next()
             .unwrap_or_default()
             .to_owned();
-        if actual != "137c40403d78fd54d454da0f9bd998f78703390c" {
+        if actual != spec.sha1 {
             return Err("Downloaded model failed its integrity check.".to_owned());
         }
         fs::rename(&temporary, &paths.model)
             .map_err(|error| format!("Could not finalize model installation: {error}"))?;
     }
-    transcription_model_status(app)
+    transcription_model_status(app, Some(spec.id.to_owned()))
 }
 
 #[tauri::command]
@@ -170,6 +233,148 @@ pub fn list_transcript(
     database
         .list_transcript(&meeting_id)
         .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn delete_transcript(
+    database: tauri::State<'_, Database>,
+    meeting_id: String,
+) -> Result<bool, String> {
+    database
+        .delete_transcript(&meeting_id)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn rename_transcript_speaker(
+    database: tauri::State<'_, Database>,
+    meeting_id: String,
+    current_label: String,
+    new_label: String,
+) -> Result<usize, String> {
+    database
+        .rename_speaker_label(&meeting_id, &current_label, &new_label)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn live_transcript_preview(
+    app: tauri::AppHandle,
+    database: tauri::State<'_, Database>,
+    transcriber: tauri::State<'_, Transcriber>,
+    meeting_id: String,
+) -> Result<LiveTranscriptPreview, String> {
+    let mut preview_active = transcriber
+        .preview_active
+        .lock()
+        .map_err(|_| "live transcription state lock is poisoned".to_owned())?;
+    if *preview_active {
+        return Err("A live transcription update is already running.".to_owned());
+    }
+    *preview_active = true;
+    drop(preview_active);
+
+    let result = run_live_preview(&app, &database, &meeting_id);
+    if let Ok(mut active) = transcriber.preview_active.lock() {
+        *active = false;
+    }
+    result
+}
+
+fn run_live_preview(
+    app: &tauri::AppHandle,
+    database: &Database,
+    meeting_id: &str,
+) -> Result<LiveTranscriptPreview, String> {
+    let paths = model_paths(app, model_spec("fast")?)?;
+    if !paths.binary.is_file() || !paths.model.is_file() {
+        return Err(
+            "Install the Fast English model in Settings to enable live transcript previews."
+                .to_owned(),
+        );
+    }
+    let state = database
+        .meeting_state(meeting_id)
+        .map_err(|error| error.to_string())?;
+    if !matches!(state, MeetingState::Recording | MeetingState::Paused) {
+        return Err("Live transcription is available only while recording.".to_owned());
+    }
+    let recording_path = database
+        .meeting_recording_path(meeting_id)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "The active recording path is not available.".to_owned())?;
+    let recording_path = PathBuf::from(recording_path);
+    let preview_directory = recording_path.join("live-preview");
+    fs::create_dir_all(&preview_directory)
+        .map_err(|error| format!("Could not create live preview storage: {error}"))?;
+    let run_id = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| error.to_string())?
+        .as_millis();
+    let mut lines = Vec::new();
+    for (track_id, speaker_label) in [("mic", "Microphone"), ("system", "Meeting audio")] {
+        let Some((chunk, chunk_index)) = latest_wav_chunk(&recording_path, track_id)? else {
+            continue;
+        };
+        let normalized = preview_directory.join(format!("{track_id}-{run_id}.wav"));
+        let status = Command::new("ffmpeg")
+            .args(["-y", "-v", "error", "-i"])
+            .arg(&chunk)
+            .args([
+                "-af",
+                "highpass=f=80,lowpass=f=7800,loudnorm=I=-16:LRA=11:TP=-1.5",
+                "-ar",
+                "16000",
+                "-ac",
+                "1",
+            ])
+            .arg(&normalized)
+            .status()
+            .map_err(|error| format!("Could not prepare the live audio preview: {error}"))?;
+        if !status.success() {
+            continue;
+        }
+        let output_base = preview_directory.join(format!("{track_id}-{run_id}"));
+        let output = Command::new(&paths.binary)
+            .args(["-m"])
+            .arg(&paths.model)
+            .args(["-f"])
+            .arg(&normalized)
+            .args(["-l", "en", "-oj", "-of"])
+            .arg(&output_base)
+            .args(["-np", "-sow", "-sns"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .output()
+            .map_err(|error| format!("Could not start the live transcript preview: {error}"))?;
+        if output.status.success() {
+            let json_path = output_base.with_extension("json");
+            let parsed: WhisperOutput = serde_json::from_str(
+                &fs::read_to_string(&json_path)
+                    .map_err(|error| format!("Could not read live transcript output: {error}"))?,
+            )
+            .map_err(|error| format!("Could not parse live transcript output: {error}"))?;
+            let text = parsed
+                .transcription
+                .into_iter()
+                .map(|segment| segment.text.trim().to_owned())
+                .filter(|text| !text.is_empty())
+                .collect::<Vec<_>>()
+                .join(" ");
+            if !text.is_empty() {
+                lines.push(LiveTranscriptLine {
+                    track_id: track_id.to_owned(),
+                    speaker_label: speaker_label.to_owned(),
+                    chunk_index,
+                    start_ms: chunk_index * 60_000,
+                    text,
+                });
+            }
+            let _ = fs::remove_file(json_path);
+        }
+        let _ = fs::remove_file(normalized);
+    }
+    Ok(LiveTranscriptPreview { lines })
 }
 
 #[tauri::command]
@@ -265,6 +470,7 @@ pub fn transcribe_meeting(
     database: tauri::State<'_, Database>,
     transcriber: tauri::State<'_, Transcriber>,
     meeting_id: String,
+    model_pack: Option<String>,
 ) -> Result<Vec<TranscriptSegmentRecord>, String> {
     let existing = database
         .list_transcript(&meeting_id)
@@ -283,7 +489,12 @@ pub fn transcribe_meeting(
         ));
     }
     *active = Some(meeting_id.clone());
-    let result = run_transcription(&app, &database, &meeting_id);
+    let result = run_transcription(
+        &app,
+        &database,
+        &meeting_id,
+        model_pack.as_deref().unwrap_or("fast"),
+    );
     *active = None;
     result
 }
@@ -292,10 +503,15 @@ fn run_transcription(
     app: &tauri::AppHandle,
     database: &Database,
     meeting_id: &str,
+    model_pack: &str,
 ) -> Result<Vec<TranscriptSegmentRecord>, String> {
-    let paths = model_paths(app)?;
+    let spec = model_spec(model_pack)?;
+    let paths = model_paths(app, spec)?;
     if !paths.binary.is_file() || !paths.model.is_file() {
-        return Err("The Balanced English transcription model is not installed.".to_owned());
+        return Err(format!(
+            "The {} transcription model is not installed. Install it from Settings.",
+            spec.label
+        ));
     }
     let recording_path = database
         .meeting_recording_path(meeting_id)
@@ -324,47 +540,12 @@ fn run_transcription(
         .map_err(|error| error.to_string())?;
 
     let processing = (|| {
-        let input = prepare_transcription_audio(&recording_path)?;
-        let output_base = recording_path.join("transcript-whisper");
-        let output = Command::new(&paths.binary)
-            .args(["-m"])
-            .arg(&paths.model)
-            .args(["-f"])
-            .arg(&input)
-            .args(["-l", "en", "-oj", "-of"])
-            .arg(&output_base)
-            .arg("-np")
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .output()
-            .map_err(|error| format!("Could not start local transcription: {error}"))?;
-        if !output.status.success() {
-            return Err(format!(
-                "Local transcription failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-                    .lines()
-                    .last()
-                    .unwrap_or("unknown error")
-            ));
+        let tracks = prepare_transcription_audio(&recording_path)?;
+        let mut segments = Vec::new();
+        for track in tracks {
+            segments.extend(transcribe_track(&paths, &recording_path, &track)?);
         }
-        let json_path = output_base.with_extension("json");
-        let parsed: WhisperOutput = serde_json::from_str(
-            &fs::read_to_string(&json_path)
-                .map_err(|error| format!("Could not read transcription output: {error}"))?,
-        )
-        .map_err(|error| format!("Could not parse transcription output: {error}"))?;
-        let segments = parsed
-            .transcription
-            .into_iter()
-            .filter_map(|segment| {
-                let text = segment.text.trim().to_owned();
-                (!text.is_empty()).then_some(TranscriptSegmentInput {
-                    start_ms: segment.offsets.from,
-                    end_ms: segment.offsets.to,
-                    text,
-                })
-            })
-            .collect::<Vec<_>>();
+        segments.sort_by_key(|segment| (segment.start_ms, segment.end_ms));
         database
             .store_source_transcript(meeting_id, &segments)
             .map_err(|error| error.to_string())
@@ -387,45 +568,145 @@ fn run_transcription(
     processing
 }
 
-fn prepare_transcription_audio(recording_path: &Path) -> Result<PathBuf, String> {
+struct PreparedTrack {
+    id: &'static str,
+    speaker_label: &'static str,
+    path: PathBuf,
+}
+
+fn prepare_transcription_audio(recording_path: &Path) -> Result<Vec<PreparedTrack>, String> {
     let mic = wav_chunks(recording_path, "mic")?;
     let system = wav_chunks(recording_path, "system")?;
     if mic.is_empty() && system.is_empty() {
         return Err("No captured audio tracks are available.".to_owned());
     }
-    let output = recording_path.join("transcription-input.wav");
-    let mut command = Command::new("ffmpeg");
-    command.args(["-y", "-v", "error"]);
-    let mut inputs = 0;
+    let mut tracks = Vec::new();
     if !mic.is_empty() {
-        let playlist = write_playlist(recording_path, "transcribe-mic", &mic)?;
-        command
-            .args(["-f", "concat", "-safe", "0", "-i"])
-            .arg(playlist);
-        inputs += 1;
+        tracks.push(prepare_track(recording_path, "mic", "Microphone", &mic)?);
     }
     if !system.is_empty() {
-        let playlist = write_playlist(recording_path, "transcribe-system", &system)?;
-        command
-            .args(["-f", "concat", "-safe", "0", "-i"])
-            .arg(playlist);
-        inputs += 1;
+        tracks.push(prepare_track(
+            recording_path,
+            "system",
+            "Meeting audio",
+            &system,
+        )?);
     }
-    if inputs == 2 {
-        command.args([
-            "-filter_complex",
-            "[0:a][1:a]amix=inputs=2:duration=longest:normalize=1",
-        ]);
-    }
+    Ok(tracks)
+}
+
+fn prepare_track(
+    recording_path: &Path,
+    id: &'static str,
+    speaker_label: &'static str,
+    chunks: &[PathBuf],
+) -> Result<PreparedTrack, String> {
+    let output = recording_path.join(format!("transcription-{id}.wav"));
+    let playlist = write_playlist(recording_path, &format!("transcribe-{id}"), chunks)?;
+    let mut command = Command::new("ffmpeg");
     let status = command
-        .args(["-ar", "16000", "-ac", "1"])
+        .args(["-y", "-v", "error", "-f", "concat", "-safe", "0", "-i"])
+        .arg(playlist)
+        .args([
+            "-af",
+            "highpass=f=80,lowpass=f=7800,loudnorm=I=-16:LRA=11:TP=-1.5",
+            "-ar",
+            "16000",
+            "-ac",
+            "1",
+        ])
         .arg(&output)
         .status()
         .map_err(|error| format!("Could not prepare transcription audio: {error}"))?;
     if !status.success() {
         return Err("FFmpeg could not prepare the transcription audio.".to_owned());
     }
-    Ok(output)
+    Ok(PreparedTrack {
+        id,
+        speaker_label,
+        path: output,
+    })
+}
+
+fn transcribe_track(
+    paths: &ModelPaths,
+    recording_path: &Path,
+    track: &PreparedTrack,
+) -> Result<Vec<TranscriptSegmentInput>, String> {
+    let output_base = recording_path.join(format!("transcript-whisper-{}", track.id));
+    let output = Command::new(&paths.binary)
+        .args(["-m"])
+        .arg(&paths.model)
+        .args(["-f"])
+        .arg(&track.path)
+        .args(["-l", "en", "-oj", "-of"])
+        .arg(&output_base)
+        .args(["-np", "-sow", "-sns"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|error| format!("Could not start local transcription: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "Local transcription failed for {}: {}",
+            track.speaker_label,
+            String::from_utf8_lossy(&output.stderr)
+                .lines()
+                .last()
+                .unwrap_or("unknown error")
+        ));
+    }
+    let json_path = output_base.with_extension("json");
+    let parsed: WhisperOutput = serde_json::from_str(
+        &fs::read_to_string(&json_path)
+            .map_err(|error| format!("Could not read transcription output: {error}"))?,
+    )
+    .map_err(|error| format!("Could not parse transcription output: {error}"))?;
+    let segments = parsed
+        .transcription
+        .into_iter()
+        .filter_map(|segment| {
+            let text = segment.text.trim().to_owned();
+            (!text.is_empty()).then_some(TranscriptSegmentInput {
+                start_ms: segment.offsets.from,
+                end_ms: segment.offsets.to,
+                speaker_label: Some(track.speaker_label.to_owned()),
+                source_track: Some(track.id.to_owned()),
+                text,
+            })
+        })
+        .collect::<Vec<_>>();
+    Ok(merge_continuous_segments(segments))
+}
+
+fn merge_continuous_segments(segments: Vec<TranscriptSegmentInput>) -> Vec<TranscriptSegmentInput> {
+    const MAX_GAP_MS: i64 = 1_500;
+    const MAX_GROUP_MS: i64 = 45_000;
+    const MAX_GROUP_CHARACTERS: usize = 600;
+    let mut grouped: Vec<TranscriptSegmentInput> = Vec::new();
+    for segment in segments {
+        let can_merge = grouped.last().is_some_and(|current| {
+            current.speaker_label == segment.speaker_label
+                && current.source_track == segment.source_track
+                && segment.start_ms.saturating_sub(current.end_ms) <= MAX_GAP_MS
+                && segment.end_ms.saturating_sub(current.start_ms) <= MAX_GROUP_MS
+                && current.text.chars().count() + segment.text.chars().count()
+                    < MAX_GROUP_CHARACTERS
+        });
+        if can_merge {
+            let current = grouped.last_mut().expect("group exists");
+            if current.text.ends_with('-') {
+                current.text.pop();
+            } else if !current.text.chars().last().is_some_and(char::is_whitespace) {
+                current.text.push(' ');
+            }
+            current.text.push_str(segment.text.trim());
+            current.end_ms = current.end_ms.max(segment.end_ms);
+        } else {
+            grouped.push(segment);
+        }
+    }
+    grouped
 }
 
 fn wav_chunks(directory: &Path, track: &str) -> Result<Vec<PathBuf>, String> {
@@ -442,6 +723,19 @@ fn wav_chunks(directory: &Path, track: &str) -> Result<Vec<PathBuf>, String> {
         .collect::<Vec<_>>();
     chunks.sort();
     Ok(chunks)
+}
+
+fn latest_wav_chunk(directory: &Path, track: &str) -> Result<Option<(PathBuf, u64)>, String> {
+    let Some(path) = wav_chunks(directory, track)?.pop() else {
+        return Ok(None);
+    };
+    let index = path
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .and_then(|name| name.strip_prefix(&format!("{track}-")))
+        .and_then(|value| value.parse::<u64>().ok())
+        .ok_or_else(|| format!("Could not read the {track} chunk index."))?;
+    Ok(Some((path, index)))
 }
 
 fn write_playlist(directory: &Path, name: &str, chunks: &[PathBuf]) -> Result<PathBuf, String> {
@@ -461,11 +755,12 @@ fn write_playlist(directory: &Path, name: &str, chunks: &[PathBuf]) -> Result<Pa
 }
 
 struct ModelPaths {
+    root: PathBuf,
     binary: PathBuf,
     model: PathBuf,
 }
 
-fn model_paths(app: &tauri::AppHandle) -> Result<ModelPaths, String> {
+fn model_paths(app: &tauri::AppHandle, spec: ModelSpec) -> Result<ModelPaths, String> {
     let root = app
         .path()
         .app_data_dir()
@@ -473,8 +768,9 @@ fn model_paths(app: &tauri::AppHandle) -> Result<ModelPaths, String> {
         .join("models")
         .join("whisper.cpp");
     Ok(ModelPaths {
+        root: root.clone(),
         binary: root.join("build/bin/whisper-cli"),
-        model: root.join("models/ggml-base.en.bin"),
+        model: root.join("models").join(spec.filename),
     })
 }
 
@@ -517,5 +813,59 @@ mod tests {
         .unwrap();
         assert_eq!(parsed.transcription[0].offsets.from, 120);
         assert_eq!(parsed.transcription[0].text.trim(), "Hello");
+    }
+
+    #[test]
+    fn exposes_three_integrity_checked_english_model_packs() {
+        assert_eq!(model_spec("fast").unwrap().filename, "ggml-base.en.bin");
+        assert_eq!(
+            model_spec("balanced").unwrap().filename,
+            "ggml-small.en.bin"
+        );
+        assert_eq!(
+            model_spec("accuracy").unwrap().filename,
+            "ggml-medium.en.bin"
+        );
+        assert!(model_spec("unknown").is_err());
+    }
+
+    #[test]
+    fn groups_continuous_speech_but_preserves_pauses_and_speakers() {
+        let segments = vec![
+            TranscriptSegmentInput {
+                start_ms: 0,
+                end_ms: 1_000,
+                speaker_label: Some("Microphone".to_owned()),
+                source_track: Some("mic".to_owned()),
+                text: "This is one".to_owned(),
+            },
+            TranscriptSegmentInput {
+                start_ms: 1_300,
+                end_ms: 2_500,
+                speaker_label: Some("Microphone".to_owned()),
+                source_track: Some("mic".to_owned()),
+                text: "continuous thought.".to_owned(),
+            },
+            TranscriptSegmentInput {
+                start_ms: 4_500,
+                end_ms: 5_000,
+                speaker_label: Some("Microphone".to_owned()),
+                source_track: Some("mic".to_owned()),
+                text: "After a pause.".to_owned(),
+            },
+            TranscriptSegmentInput {
+                start_ms: 5_100,
+                end_ms: 6_000,
+                speaker_label: Some("Meeting audio".to_owned()),
+                source_track: Some("system".to_owned()),
+                text: "Another channel.".to_owned(),
+            },
+        ];
+
+        let grouped = merge_continuous_segments(segments);
+        assert_eq!(grouped.len(), 3);
+        assert_eq!(grouped[0].text, "This is one continuous thought.");
+        assert_eq!(grouped[0].end_ms, 2_500);
+        assert_eq!(grouped[2].speaker_label.as_deref(), Some("Meeting audio"));
     }
 }

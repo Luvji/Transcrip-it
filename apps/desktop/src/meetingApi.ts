@@ -179,6 +179,7 @@ export interface TranscriptSegment {
   startMs: number;
   endMs: number;
   speakerLabel: string | null;
+  sourceTrack: "mic" | "system" | null;
   sourceText: string;
   displayText: string;
   activeCorrectionId: string | null;
@@ -186,10 +187,13 @@ export interface TranscriptSegment {
 
 export interface TranscriptionModelStatus {
   installed: boolean;
+  packId: TranscriptionModelPack;
   pack: string;
   modelBytes: number | null;
   engineVersion: string;
 }
+
+export type TranscriptionModelPack = "fast" | "balanced" | "accuracy";
 
 export interface TranscriptSearchResult {
   meetingId: string;
@@ -199,23 +203,47 @@ export interface TranscriptSearchResult {
   snippet: string;
 }
 
+export interface LiveTranscriptLine {
+  trackId: "mic" | "system";
+  speakerLabel: string;
+  chunkIndex: number;
+  startMs: number;
+  text: string;
+}
+
+export interface LiveTranscriptPreview {
+  lines: LiveTranscriptLine[];
+}
+
 export const transcriptionApi = {
   available: isTauri(),
-  async modelStatus(): Promise<TranscriptionModelStatus> {
-    if (!isTauri()) return { installed: false, pack: "Balanced English", modelBytes: null, engineVersion: "Desktop app required" };
-    return invoke("transcription_model_status");
+  async modelStatus(pack: TranscriptionModelPack): Promise<TranscriptionModelStatus> {
+    if (!isTauri()) return { installed: false, packId: pack, pack: "Desktop model", modelBytes: null, engineVersion: "Desktop app required" };
+    return invoke("transcription_model_status", { pack });
   },
-  async installModel(): Promise<TranscriptionModelStatus> {
+  async installModel(pack: TranscriptionModelPack): Promise<TranscriptionModelStatus> {
     if (!isTauri()) throw new Error("Model installation is available in the Transcrip-it desktop app.");
-    return invoke("install_transcription_model");
+    return invoke("install_transcription_model", { pack });
   },
-  async transcribe(meetingId: string): Promise<TranscriptSegment[]> {
+  async transcribe(meetingId: string, modelPack: TranscriptionModelPack): Promise<TranscriptSegment[]> {
     if (!isTauri()) throw new Error("Local transcription is available in the Transcrip-it desktop app.");
-    return invoke("transcribe_meeting", { meetingId });
+    return invoke("transcribe_meeting", { meetingId, modelPack });
   },
   async list(meetingId: string): Promise<TranscriptSegment[]> {
     if (!isTauri()) return [];
     return invoke("list_transcript", { meetingId });
+  },
+  async delete(meetingId: string): Promise<boolean> {
+    if (!isTauri()) return false;
+    return invoke("delete_transcript", { meetingId });
+  },
+  async livePreview(meetingId: string): Promise<LiveTranscriptPreview> {
+    if (!isTauri()) return { lines: [] };
+    return invoke("live_transcript_preview", { meetingId });
+  },
+  async renameSpeaker(meetingId: string, currentLabel: string, newLabel: string): Promise<number> {
+    if (!isTauri()) return 0;
+    return invoke("rename_transcript_speaker", { meetingId, currentLabel, newLabel });
   },
   async search(query: string): Promise<TranscriptSearchResult[]> {
     if (!isTauri() || query.trim().length < 2) return [];

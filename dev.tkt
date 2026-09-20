@@ -78,8 +78,9 @@ TRANSCRIP-IT - DEVELOPMENT TRACKER
       [DESC] Allow engines to change without rewriting stored meeting data.
       [DESC] Provide typed transcription, speaker, and summary contracts with cancellation, progress, retry-aware errors, and replaceable registry entries.
       [DESC] Verified adapter replacement, shared cancellation, progress reporting, typed lookup failures, formatting, and warning-free Clippy output.
-    *- [FT] [TI-0027] Support independently downloadable model packs
+    $- [FT] [TI-0027] Support independently downloadable model packs
       [DESC] Keep the core installer small and offer Lite, Balanced, and Accuracy configurations.
+      [DESC] Added integrity-checked Fast, Balanced, and Accuracy English packs using base.en, small.en, and medium.en with per-user selection and on-demand installation.
 
 *- [EPIC] [TI-0028] Meeting library and lifecycle management
   [DESC] Provide a clear local workspace for managing meetings throughout their lifecycle.
@@ -141,9 +142,11 @@ TRANSCRIP-IT - DEVELOPMENT TRACKER
     *- [FT] [TI-0049] Show processing progress and recoverable errors
     *- [ENH] [TI-0050] Measure processing resource use on the target device
       [DESC] Track time, processor and memory use, temperature, and transcript usability.
-    *- [FT] [TI-0051] Generate basic anonymous speaker labels
+    $- [FT] [TI-0051] Generate basic anonymous speaker labels
       [DESC] Do not infer identity silently; expose uncertainty when separation is unreliable.
-    *- [FT] [TI-0052] Rename and merge speaker labels manually
+      [DESC] Independently transcribe and attribute microphone and system channels without claiming individual remote identities.
+    $- [FT] [TI-0052] Rename and merge speaker labels manually
+      [DESC] Allow channel labels to be renamed across a transcript while retaining immutable track provenance for playback.
 
 *- [EPIC] [TI-0053] Evidence-preserving transcript review
   [DESC] Let users inspect and correct transcripts without overwriting the original evidence record.
@@ -157,6 +160,10 @@ TRANSCRIP-IT - DEVELOPMENT TRACKER
       [DESC] Allow uncertain segments to be replayed, corrected, or reprocessed.
     *- [FT] [TI-0058] Choose native-script, romanized, or combined display
       [DESC] Display options must never overwrite the original transcript.
+    $- [ENH] [TI-0103] Group continuous speech into readable transcript passages
+      [DESC] Merge adjacent same-channel segments within pause, duration, and size limits while retaining accurate passage timestamps.
+    $- [FT] [TI-0104] Delete a transcript without deleting its recording
+      [DESC] Remove source passages, corrections, and search entries only after explicit confirmation so the recording can be transcribed again.
 
 *- [EPIC] [TI-0059] Grounded summaries, decisions, and action tracking
   [DESC] Generate editable structured notes locally and make conclusions traceable to transcript evidence.
@@ -237,7 +244,8 @@ TRANSCRIP-IT - DEVELOPMENT TRACKER
 *- [EPIC] [TI-0095] Deferred platform and collaboration capabilities
   [DESC] Revisit these capabilities only after the local single-user post-processing workflow is proven.
 
-    *- [FT] [TI-0096] Add live transcription after post-processing stabilizes
+    #- [FT] [TI-0096] Add live transcription after post-processing stabilizes
+      [DESC] Added an on-device provisional preview from recoverable microphone and system chunks; native recording validation remains.
     *- [FT] [TI-0097] Add Windows and macOS platform support
       [DESC] Begin after the Linux workflow and audio interfaces stabilize.
     *- [FT] [TI-0098] Add platform meeting bots

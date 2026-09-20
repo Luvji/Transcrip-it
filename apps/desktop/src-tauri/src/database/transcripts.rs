@@ -3,10 +3,12 @@ use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use serde::Serialize;
 use std::{error::Error, fmt};
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TranscriptSegmentInput {
     pub start_ms: i64,
     pub end_ms: i64,
+    pub speaker_label: Option<String>,
+    pub source_track: Option<String>,
     pub text: String,
 }
 
@@ -18,6 +20,7 @@ pub struct TranscriptSegmentRecord {
     pub start_ms: i64,
     pub end_ms: i64,
     pub speaker_label: Option<String>,
+    pub source_track: Option<String>,
     pub source_text: String,
     pub display_text: String,
     pub active_correction_id: Option<String>,
@@ -39,6 +42,7 @@ pub enum TranscriptError {
     Sql(rusqlite::Error),
     MeetingNotFound(String),
     InvalidSegment,
+    InvalidSpeakerLabel,
 }
 
 impl fmt::Display for TranscriptError {
@@ -51,6 +55,9 @@ impl fmt::Display for TranscriptError {
                 formatter,
                 "transcript segment has invalid timing or empty text"
             ),
+            Self::InvalidSpeakerLabel => {
+                write!(formatter, "speaker label must contain 1 to 80 characters")
+            }
         }
     }
 }
@@ -102,15 +109,17 @@ impl Database {
             for (index, segment) in segments.iter().enumerate() {
                 transaction.execute(
                     "INSERT INTO transcript_segments
-                        (id, meeting_id, sequence_number, start_ms, end_ms, speaker_label, language_code, source_text)
-                     VALUES (?1, ?2, ?3, ?4, ?5, 'Speaker 1', 'en', ?6)",
+                        (id, meeting_id, sequence_number, start_ms, end_ms, speaker_label, language_code, source_text, source_track)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'en', ?7, ?8)",
                     params![
                         format!("{meeting_id}:source:{index}"),
                         meeting_id,
                         index as i64,
                         segment.start_ms,
                         segment.end_ms,
+                        segment.speaker_label,
                         segment.text.trim(),
+                        segment.source_track,
                     ],
                 )?;
             }
@@ -140,6 +149,67 @@ impl Database {
             return Err(TranscriptError::MeetingNotFound(meeting_id.to_owned()));
         }
         query_transcript(&connection, meeting_id)
+    }
+
+    pub fn delete_transcript(&self, meeting_id: &str) -> Result<bool, TranscriptError> {
+        let mut connection = self.connection()?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let exists: bool = transaction.query_row(
+            "SELECT EXISTS(SELECT 1 FROM meetings WHERE id = ?1)",
+            [meeting_id],
+            |row| row.get(0),
+        )?;
+        if !exists {
+            return Err(TranscriptError::MeetingNotFound(meeting_id.to_owned()));
+        }
+        let deleted = transaction.execute(
+            "DELETE FROM transcript_segments WHERE meeting_id = ?1",
+            [meeting_id],
+        )?;
+        if deleted > 0 {
+            transaction.execute(
+                "UPDATE meetings SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?1",
+                [meeting_id],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(deleted > 0)
+    }
+
+    pub fn rename_speaker_label(
+        &self,
+        meeting_id: &str,
+        current_label: &str,
+        new_label: &str,
+    ) -> Result<usize, TranscriptError> {
+        let new_label = new_label.trim();
+        if current_label.trim().is_empty() || new_label.is_empty() || new_label.chars().count() > 80
+        {
+            return Err(TranscriptError::InvalidSpeakerLabel);
+        }
+        let mut connection = self.connection()?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let exists: bool = transaction.query_row(
+            "SELECT EXISTS(SELECT 1 FROM meetings WHERE id = ?1)",
+            [meeting_id],
+            |row| row.get(0),
+        )?;
+        if !exists {
+            return Err(TranscriptError::MeetingNotFound(meeting_id.to_owned()));
+        }
+        let changed = transaction.execute(
+            "UPDATE transcript_segments SET speaker_label = ?1
+             WHERE meeting_id = ?2 AND speaker_label = ?3",
+            params![new_label, meeting_id, current_label],
+        )?;
+        if changed > 0 {
+            transaction.execute(
+                "UPDATE meetings SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?1",
+                [meeting_id],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(changed)
     }
 
     pub fn search_transcripts(
@@ -185,7 +255,7 @@ fn query_transcript(
 ) -> Result<Vec<TranscriptSegmentRecord>, TranscriptError> {
     let mut statement = connection.prepare(
         "SELECT s.id, s.sequence_number, s.start_ms, s.end_ms, s.speaker_label,
-                c.source_text, c.display_text, c.active_correction_id
+                s.source_track, c.source_text, c.display_text, c.active_correction_id
          FROM transcript_segments s
          JOIN transcript_current_text c ON c.segment_id = s.id
          WHERE s.meeting_id = ?1 ORDER BY s.sequence_number",
@@ -198,9 +268,10 @@ fn query_transcript(
                 start_ms: row.get(2)?,
                 end_ms: row.get(3)?,
                 speaker_label: row.get(4)?,
-                source_text: row.get(5)?,
-                display_text: row.get(6)?,
-                active_correction_id: row.get(7)?,
+                source_track: row.get(5)?,
+                source_text: row.get(6)?,
+                display_text: row.get(7)?,
+                active_correction_id: row.get(8)?,
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -225,12 +296,27 @@ mod tests {
         let input = [TranscriptSegmentInput {
             start_ms: 100,
             end_ms: 900,
+            speaker_label: Some("Microphone".to_owned()),
+            source_track: Some("mic".to_owned()),
             text: " Hello ".to_owned(),
         }];
         let first = database.store_source_transcript("m1", &input).unwrap();
         let replay = database.store_source_transcript("m1", &input).unwrap();
         assert_eq!(first.len(), 1);
         assert_eq!(first[0].source_text, "Hello");
+        assert_eq!(first[0].speaker_label.as_deref(), Some("Microphone"));
+        assert_eq!(
+            database
+                .rename_speaker_label("m1", "Microphone", "Jihad")
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            database.list_transcript("m1").unwrap()[0]
+                .speaker_label
+                .as_deref(),
+            Some("Jihad")
+        );
         assert_eq!(replay.len(), 1);
         let results = database.search_transcripts("hello").unwrap();
         assert_eq!(results.len(), 1);
@@ -249,5 +335,9 @@ mod tests {
             .unwrap();
         assert!(database.search_transcripts("hello").unwrap().is_empty());
         assert_eq!(database.search_transcripts("corrected").unwrap().len(), 1);
+        assert!(database.delete_transcript("m1").unwrap());
+        assert!(database.list_transcript("m1").unwrap().is_empty());
+        assert!(database.search_transcripts("corrected").unwrap().is_empty());
+        assert!(!database.delete_transcript("m1").unwrap());
     }
 }
