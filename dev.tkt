@@ -247,7 +247,9 @@ TRANSCRIP-IT - DEVELOPMENT TRACKER
       [DESC] Native socket inspection found no Internet connections for the running desktop process. Future sync, cloud inference, telemetry, or collaboration remains an explicit opt-in boundary.
     *- [ENH] [TI-0081] Encrypt sensitive stored content where practical
       [DESC] Protect encryption keys with the operating-system credential store.
-    *- [ENH] [TI-0082] Exclude meeting content from logs and crash reports
+    $- [ENH] [TI-0082] Exclude meeting content from logs and crash reports
+      [DESC] No remote crash reporter, analytics SDK, or telemetry exporter is configured. Production UI/backend paths do not log transcript or other meeting content; the repository check now rejects frontend console logging and Rust production printing in those paths.
+      [DESC] Local capture diagnostics are limited to process status, device/source details, local paths, and tool errors. The privacy boundary and requirements for any future diagnostics export are documented.
     *- [FT] [TI-0083] Enforce retention limits and permanent deletion
       [DESC] Explain and verify removal of metadata, transcripts, and stored media.
       [DESC] Product direction (Sep 20, 2026): keep audio during the current quality-validation phase, then offer deletion after a final transcript completes to reduce storage use; retain audio only when the user explicitly chooses it and explain that timestamp playback and retranscription will no longer be available.

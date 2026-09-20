@@ -80,6 +80,24 @@ function validateTickets(ticketFiles, contents, failures) {
   }
 }
 
+function validateSensitiveLogging(contents, failures) {
+  const frontendRoot = "apps/desktop/src/";
+  const rustRoot = "apps/desktop/src-tauri/src/";
+
+  for (const [file, content] of contents) {
+    const name = relative(file);
+    if (name.startsWith(frontendRoot) && /console\.(?:log|debug|info|warn|error)\s*\(/.test(content)) {
+      failures.push(`${name} must not log from the meeting-content UI`);
+    }
+    if (name.startsWith(rustRoot)) {
+      const productionContent = content.split("#[cfg(test)]", 1)[0];
+      if (/\b(?:print|println|eprint|eprintln)!\s*\(/.test(productionContent)) {
+        failures.push(`${name} must not print from the meeting-content backend`);
+      }
+    }
+  }
+}
+
 async function main() {
   const allFiles = await collectFiles();
   const checkedFiles = allFiles.filter((file) => (
@@ -99,6 +117,7 @@ async function main() {
 
   const ticketFiles = checkedFiles.filter((file) => [".tkt", ".tickets"].includes(path.extname(file)));
   validateTickets(ticketFiles, contents, failures);
+  validateSensitiveLogging(contents, failures);
   if (failures.length) {
     console.error(failures.map((failure) => `- ${failure}`).join("\n"));
     process.exitCode = 1;
