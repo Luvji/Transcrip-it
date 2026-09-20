@@ -1,4 +1,7 @@
-use crate::database::{Database, MeetingState, MeetingTransitionRequest};
+use crate::{
+    child_process::terminate_with_parent,
+    database::{Database, MeetingState, MeetingTransitionRequest},
+};
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
@@ -244,6 +247,7 @@ pub fn start_recording(
     {
         command.args(["--system-source", source]);
     }
+    terminate_with_parent(&mut command);
     let mut child = command
         .arg("--output")
         .arg(&recording_path)
@@ -353,9 +357,40 @@ pub fn recover_interrupted_recordings(
         active.take();
     }
     drop(active);
+    recover_completed_recording_metadata(&database)?;
     database
         .recover_interrupted_meetings()
         .map_err(|error| error.to_string())
+}
+
+pub(crate) fn recover_completed_recording_metadata(database: &Database) -> Result<usize, String> {
+    let candidates = database
+        .recordings_missing_duration()
+        .map_err(|error| error.to_string())?;
+    let mut recovered = 0;
+    for (meeting_id, stored_path) in candidates {
+        let recording_path = PathBuf::from(&stored_path);
+        let Ok(manifest) = read_manifest(&recording_path) else {
+            continue;
+        };
+        if manifest.status != "complete" {
+            continue;
+        }
+        let Some(duration_seconds) = manifest
+            .tracks
+            .iter()
+            .filter_map(|track| track.captured_duration_seconds)
+            .reduce(f64::max)
+        else {
+            continue;
+        };
+        let duration_ms = duration_seconds.mul_add(1000.0, 0.0).round() as i64;
+        database
+            .mark_recording_finished(&meeting_id, duration_ms, &stored_path)
+            .map_err(|error| error.to_string())?;
+        recovered += 1;
+    }
+    Ok(recovered)
 }
 
 #[tauri::command]
@@ -547,6 +582,7 @@ pub fn play_recording_track(
     if start_ms > 0 {
         command.args(["-ss", &format!("{:.3}", start_ms as f64 / 1000.0)]);
     }
+    terminate_with_parent(&mut command);
     let child = command
         .arg("-i")
         .arg(playlist_path)
@@ -864,6 +900,8 @@ fn validate_meeting_id(meeting_id: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::database::CreateMeetingInput;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn meeting_ids_are_safe_for_recording_paths() {
@@ -904,6 +942,44 @@ mod tests {
     fn embedded_capture_script_is_present() {
         assert!(CAPTURE_SCRIPT.contains("--consent-confirmed"));
         assert!(CAPTURE_SCRIPT.contains("module-echo-cancel"));
+    }
+
+    #[test]
+    fn completed_manifest_restores_duration_after_interruption() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "transcrip-it-recovery-{}-{unique}",
+            std::process::id()
+        ));
+        let recording_path = root.join("recording");
+        fs::create_dir_all(&recording_path).unwrap();
+        let database = Database::open(&root.join("test.sqlite3")).unwrap();
+        database
+            .create_meeting(&CreateMeetingInput {
+                id: "meeting-1".to_owned(),
+                idempotency_key: "create-meeting-1".to_owned(),
+                title: "Interrupted recording".to_owned(),
+            })
+            .unwrap();
+        database
+            .mark_recording_started("meeting-1", &recording_path.to_string_lossy())
+            .unwrap();
+        fs::write(
+            recording_path.join("manifest.json"),
+            r#"{"status":"complete","tracks":[{"capturedDurationSeconds":5178.125}],"errors":[]}"#,
+        )
+        .unwrap();
+
+        assert_eq!(recover_completed_recording_metadata(&database).unwrap(), 1);
+        let meeting = database.list_meetings(false).unwrap().remove(0);
+        assert_eq!(meeting.duration_ms, Some(5_178_125));
+        assert_eq!(recover_completed_recording_metadata(&database).unwrap(), 0);
+
+        drop(database);
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

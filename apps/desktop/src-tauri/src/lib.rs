@@ -1,3 +1,4 @@
+mod child_process;
 pub mod database;
 pub mod engines;
 mod recording;
@@ -114,6 +115,8 @@ pub fn run() {
         .setup(|app| {
             let database_path = app.path().app_data_dir()?.join("transcrip-it.sqlite3");
             let database = Database::open(&database_path)?;
+            recording::recover_completed_recording_metadata(&database)
+                .map_err(std::io::Error::other)?;
             database.recover_interrupted_meetings()?;
             app.manage(database);
             app.manage(Recorder::new());

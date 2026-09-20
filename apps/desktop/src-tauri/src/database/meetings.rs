@@ -315,6 +315,19 @@ impl Database {
             .flatten())
     }
 
+    pub(crate) fn recordings_missing_duration(
+        &self,
+    ) -> Result<Vec<(String, String)>, MeetingError> {
+        let connection = self.connection()?;
+        let mut statement = connection.prepare(
+            "SELECT id, recording_path FROM meetings
+             WHERE recording_path IS NOT NULL AND duration_ms IS NULL",
+        )?;
+        let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(MeetingError::from)
+    }
+
     pub fn meeting_title(&self, meeting_id: &str) -> Result<String, MeetingError> {
         self.connection()?
             .query_row(

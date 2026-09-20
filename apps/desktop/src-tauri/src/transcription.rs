@@ -1,6 +1,9 @@
-use crate::database::{
-    AuthorKind, Database, DerivativeKind, MeetingState, MeetingTransitionRequest,
-    SegmentDerivativeInput, SegmentText, TranscriptSegmentInput, TranscriptSegmentRecord,
+use crate::{
+    child_process::terminate_with_parent,
+    database::{
+        AuthorKind, Database, DerivativeKind, MeetingState, MeetingTransitionRequest,
+        SegmentDerivativeInput, SegmentText, TranscriptSegmentInput, TranscriptSegmentRecord,
+    },
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -351,7 +354,8 @@ fn run_live_preview(
             continue;
         }
         let normalized = preview_directory.join(format!("{track_id}-{run_id}.wav"));
-        let status = Command::new("ffmpeg")
+        let mut normalize_command = Command::new("ffmpeg");
+        normalize_command
             .args([
                 "-y",
                 "-v",
@@ -371,7 +375,9 @@ fn run_live_preview(
                 "-ac",
                 "1",
             ])
-            .arg(&normalized)
+            .arg(&normalized);
+        terminate_with_parent(&mut normalize_command);
+        let status = normalize_command
             .status()
             .map_err(|error| format!("Could not prepare the live audio preview: {error}"))?;
         if !status.success() {
@@ -382,7 +388,8 @@ fn run_live_preview(
             continue;
         }
         let output_base = preview_directory.join(format!("{track_id}-{run_id}"));
-        let output = Command::new(&paths.binary)
+        let mut whisper_command = Command::new(&paths.binary);
+        whisper_command
             .args(["-m"])
             .arg(&paths.model)
             .args(["-f"])
@@ -391,7 +398,9 @@ fn run_live_preview(
             .arg(&output_base)
             .args(["-np", "-sow", "-sns"])
             .stdout(Stdio::null())
-            .stderr(Stdio::piped())
+            .stderr(Stdio::piped());
+        terminate_with_parent(&mut whisper_command);
+        let output = whisper_command
             .output()
             .map_err(|error| format!("Could not start the live transcript preview: {error}"))?;
         if output.status.success() {
@@ -699,7 +708,7 @@ fn prepare_track(
     let output = recording_path.join(format!("transcription-{id}.wav"));
     let playlist = write_playlist(recording_path, &format!("transcribe-{id}"), chunks)?;
     let mut command = Command::new("ffmpeg");
-    let status = command
+    command
         .args(["-y", "-v", "error", "-f", "concat", "-safe", "0", "-i"])
         .arg(playlist)
         .args([
@@ -710,7 +719,9 @@ fn prepare_track(
             "-ac",
             "1",
         ])
-        .arg(&output)
+        .arg(&output);
+    terminate_with_parent(&mut command);
+    let status = command
         .status()
         .map_err(|error| format!("Could not prepare transcription audio: {error}"))?;
     if !status.success() {
@@ -729,7 +740,8 @@ fn transcribe_track(
     track: &PreparedTrack,
 ) -> Result<Vec<TranscriptSegmentInput>, String> {
     let output_base = recording_path.join(format!("transcript-whisper-{}", track.id));
-    let output = Command::new(&paths.binary)
+    let mut command = Command::new(&paths.binary);
+    command
         .args(["-m"])
         .arg(&paths.model)
         .args(["-f"])
@@ -738,7 +750,9 @@ fn transcribe_track(
         .arg(&output_base)
         .args(["-np", "-sow", "-sns"])
         .stdout(Stdio::null())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+    terminate_with_parent(&mut command);
+    let output = command
         .output()
         .map_err(|error| format!("Could not start local transcription: {error}"))?;
     if !output.status.success() {
