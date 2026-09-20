@@ -226,8 +226,9 @@ TRANSCRIP-IT - DEVELOPMENT TRACKER
       [DESC] Cover two-hour meetings, forced termination, restart, low resources, disconnects, silence, cross-talk, and corrupt files.
     *- [ENH] [TI-0091] Verify keyboard usability and core workflow clarity
       [DESC] Measure recording-state, consent, correction, and export comprehension.
-    *- [FT] [TI-0092] Package an installable Ubuntu release candidate
+    #- [FT] [TI-0092] Package an installable Ubuntu release candidate
       [DESC] Include setup, diagnostics, backup, restore, uninstall, and clean-environment instructions.
+      [DESC] Built an amd64 Debian package with explicit capture/transcription dependencies; package metadata, extracted files, dynamic links, and an apt install simulation pass. A clean-user install remains for release approval.
     *- [ENH] [TI-0093] Pilot the release candidate in ten consented meetings
       [DESC] Classify every defect and summary correction, then resolve or accept the findings.
     *- [ENH] [TI-0094] Enforce final release quality gates

@@ -27,6 +27,22 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "linux": {
+      "deb": {
+        "depends": [
+          "nodejs (>= 18)",
+          "pulseaudio-utils",
+          "ffmpeg",
+          "procps",
+          "git",
+          "cmake",
+          "build-essential",
+          "curl",
+          "ca-certificates",
+          "coreutils"
+        ]
+      }
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

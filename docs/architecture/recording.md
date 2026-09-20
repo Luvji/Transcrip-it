@@ -18,4 +18,4 @@ While recording, the worker publishes normalized peak levels for each selected t
 
 ## Runtime requirements
 
-The current Linux MVP uses the system `node`, `pactl`, `parec`, `kill`, `pkill`, and `ffplay` executables. Missing tools produce an actionable error before capture. These dependencies will be replaced or bundled as release packaging matures.
+The current Linux MVP uses the system `node`, `pactl`, `parec`, `kill`, `pkill`, and `ffplay` executables. Missing tools produce an actionable error before capture. The Debian package declares the corresponding Node.js, PulseAudio, procps, and FFmpeg packages as installation dependencies.
