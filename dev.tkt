@@ -233,7 +233,9 @@ TRANSCRIP-IT - DEVELOPMENT TRACKER
     *- [FT] [TI-0075] Show diagnostics, storage usage, model status, and job errors
       [DESC] Diagnostic output must exclude transcript content and sensitive meeting data.
     *- [FT] [TI-0076] Guide first-run model installation and setup
-    *- [ENH] [TI-0077] Verify downloaded model integrity
+    $- [ENH] [TI-0077] Verify downloaded model integrity
+      [DESC] Fast, Balanced, and Accuracy model downloads use pinned upstream SHA-1 values and are promoted from temporary storage only after successful checksum-tool execution and an exact digest match.
+      [DESC] Invalid temporary downloads are deleted and never installed. Verified a known valid digest and a modified-download rejection with a focused regression, 45 Rust tests, and warning-free Clippy.
     *- [FT] [TI-0078] Back up and restore local meeting data
 
 *- [EPIC] [TI-0079] Privacy, security, retention, and responsible use

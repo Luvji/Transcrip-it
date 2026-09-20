@@ -1,6 +1,6 @@
 # Local transcription
 
-The Linux app uses a pinned `whisper.cpp` v1.9.4 runtime with independently downloadable English models. Settings reports installation status and installs the selected engine/model on demand. Every downloaded model is accepted only when its SHA-1 matches the checksum published by the upstream whisper.cpp model catalog.
+The Linux app uses a pinned `whisper.cpp` v1.9.4 runtime with independently downloadable English models. Settings reports installation status and installs the selected engine/model on demand. Every downloaded model is accepted only when its SHA-1 matches the checksum published by the upstream whisper.cpp model catalog. A failed checksum or checksum-tool error prevents installation; mismatched temporary downloads are removed instead of being retained or renamed into service.
 
 The available packs are **Fast English** (`base.en`, approximately 142 MiB), **Balanced English** (`small.en`, approximately 466 MiB), and **Accuracy English** (`medium.en`, approximately 1.5 GiB). Balanced is recommended when clearer wording is more important than processing speed. All packs run entirely on-device; audio and generated text are not sent to a service. The engine is replaceable through the interfaces described in [`engine-interfaces.md`](engine-interfaces.md).
 

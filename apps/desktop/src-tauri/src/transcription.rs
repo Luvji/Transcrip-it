@@ -212,22 +212,38 @@ pub fn install_transcription_model(
                 .arg(spec.download_url),
             &format!("download the {} model", spec.label),
         )?;
-        let checksum = Command::new("sha1sum")
-            .arg(&temporary)
-            .output()
-            .map_err(|error| format!("Could not verify model integrity: {error}"))?;
-        let actual = String::from_utf8_lossy(&checksum.stdout)
-            .split_whitespace()
-            .next()
-            .unwrap_or_default()
-            .to_owned();
-        if actual != spec.sha1 {
-            return Err("Downloaded model failed its integrity check.".to_owned());
+        if let Err(error) = verify_model_checksum(&temporary, spec.sha1) {
+            let _ = fs::remove_file(&temporary);
+            return Err(error);
         }
         fs::rename(&temporary, &paths.model)
             .map_err(|error| format!("Could not finalize model installation: {error}"))?;
     }
     transcription_model_status(app, Some(spec.id.to_owned()))
+}
+
+fn verify_model_checksum(path: &Path, expected_sha1: &str) -> Result<(), String> {
+    let checksum = Command::new("sha1sum")
+        .arg(path)
+        .output()
+        .map_err(|error| format!("Could not verify model integrity: {error}"))?;
+    if !checksum.status.success() {
+        return Err(format!(
+            "Could not verify model integrity: {}",
+            String::from_utf8_lossy(&checksum.stderr).trim()
+        ));
+    }
+    let actual = String::from_utf8_lossy(&checksum.stdout)
+        .split_whitespace()
+        .next()
+        .unwrap_or_default()
+        .to_owned();
+    if actual != expected_sha1 {
+        return Err(
+            "Downloaded model failed its integrity check; the invalid file was removed.".to_owned(),
+        );
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -1222,6 +1238,22 @@ mod tests {
             "ggml-medium.en.bin"
         );
         assert!(model_spec("unknown").is_err());
+    }
+
+    #[test]
+    fn model_integrity_rejects_modified_downloads() {
+        let path = std::env::temp_dir().join(format!(
+            "transcrip-it-model-checksum-{}",
+            std::process::id()
+        ));
+        fs::write(&path, b"abc").unwrap();
+        assert!(verify_model_checksum(&path, "a9993e364706816aba3e25717850c26c9cd0d89d").is_ok());
+        assert!(
+            verify_model_checksum(&path, "0000000000000000000000000000000000000000")
+                .unwrap_err()
+                .contains("invalid file was removed")
+        );
+        fs::remove_file(path).unwrap();
     }
 
     #[test]
