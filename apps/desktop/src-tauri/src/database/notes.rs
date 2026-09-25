@@ -5,6 +5,7 @@ use rusqlite::{params, OptionalExtension};
 pub(crate) struct StoredMeetingNotes {
     pub payload_json: String,
     pub approved: bool,
+    pub stale: bool,
 }
 
 impl Database {
@@ -15,12 +16,13 @@ impl Database {
         let connection = self.connection()?;
         connection
             .query_row(
-                "SELECT payload_json, approved FROM meeting_notes WHERE meeting_id = ?1",
+                "SELECT payload_json, approved, stale FROM meeting_notes WHERE meeting_id = ?1",
                 [meeting_id],
                 |row| {
                     Ok(StoredMeetingNotes {
                         payload_json: row.get(0)?,
                         approved: row.get(1)?,
+                        stale: row.get(2)?,
                     })
                 },
             )
@@ -33,16 +35,18 @@ impl Database {
         meeting_id: &str,
         payload_json: &str,
         approved: bool,
+        stale: bool,
     ) -> Result<(), DatabaseError> {
         let connection = self.connection()?;
         connection.execute(
-            "INSERT INTO meeting_notes (meeting_id, payload_json, approved)
-             VALUES (?1, ?2, ?3)
+            "INSERT INTO meeting_notes (meeting_id, payload_json, approved, stale)
+             VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT(meeting_id) DO UPDATE SET
                 payload_json = excluded.payload_json,
                 approved = excluded.approved,
+                stale = excluded.stale,
                 updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
-            params![meeting_id, payload_json, approved],
+            params![meeting_id, payload_json, approved, stale],
         )?;
         Ok(())
     }
@@ -66,11 +70,12 @@ mod tests {
         }
 
         database
-            .store_meeting_notes("meeting-1", r#"{"meetingId":"meeting-1"}"#, true)
+            .store_meeting_notes("meeting-1", r#"{"meetingId":"meeting-1"}"#, true, false)
             .unwrap();
         let stored = database.load_meeting_notes("meeting-1").unwrap().unwrap();
         assert_eq!(stored.payload_json, r#"{"meetingId":"meeting-1"}"#);
         assert!(stored.approved);
+        assert!(!stored.stale);
 
         database
             .connection()

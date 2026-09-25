@@ -293,6 +293,7 @@ h1 { margin-bottom: 6px; color: var(--ink); font-size: clamp(29px, 3.2vw, 39px);
 .evidence-links button { padding: 4px 6px; border: 0; border-radius: 5px; color: #6e52b1; background: #f0ebf9; cursor: pointer; font-size: 7px; font-weight: 700; }
 .review-confirmation { display: flex; align-items: center; gap: 8px; padding: 11px 28px; color: #5f5867; border-top: 1px solid var(--line); background: #fff; font-size: 9px; font-weight: 650; }
 .review-confirmation input { accent-color: var(--violet); }
+.notes-stale { margin: 0; padding: 10px 28px; color: #86591f; border-bottom: 1px solid #f0dfbe; background: #fff8e9; font-size: 9px; }
 .search-results { display: grid; gap: 7px; padding-top: 6px; }
 .search-results h2 { margin: 0 0 3px; font-size: 13px; }
 .search-results > button { display: grid; gap: 6px; padding: 12px 14px; border: 1px solid #e5e0eb; border-radius: 9px; background: #fff; cursor: pointer; text-align: left; }

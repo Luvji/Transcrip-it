@@ -340,7 +340,7 @@ mod tests {
         assert!(database.search_transcripts("hello").unwrap().is_empty());
         assert_eq!(database.search_transcripts("corrected").unwrap().len(), 1);
         database
-            .store_meeting_notes("m1", r#"{"meetingId":"m1"}"#, false)
+            .store_meeting_notes("m1", r#"{"meetingId":"m1"}"#, false, false)
             .unwrap();
         assert!(database.delete_transcript("m1").unwrap());
         assert!(database.list_transcript("m1").unwrap().is_empty());

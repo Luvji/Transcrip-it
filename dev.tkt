@@ -189,7 +189,9 @@ TRANSCRIP-IT - DEVELOPMENT TRACKER
       [DESC] Display immutable source segments and start microphone playback at the selected timestamp.
     $- [FT] [TI-0055] Edit transcript text while preserving original segments
       [DESC] Append user correction revisions, retain and reveal immutable source text, and update search/export display without overwriting evidence.
-    *- [FT] [TI-0056] Regenerate only outputs affected by transcript corrections
+    $- [FT] [TI-0056] Regenerate only outputs affected by transcript corrections
+      [DESC] A correction now marks only that meeting's persisted notes stale and clears approval while preserving manual note edits. Unrelated meetings and source evidence are unchanged.
+      [DESC] Stale notes remain reviewable but cannot be approved or exported in either the interface or backend until explicitly regenerated from the current corrected transcript.
     *- [ENH] [TI-0057] Mark low-confidence transcript segments visibly
       [DESC] Allow uncertain segments to be replayed, corrected, or reprocessed.
     *- [FT] [TI-0058] Choose native-script, romanized, or combined display

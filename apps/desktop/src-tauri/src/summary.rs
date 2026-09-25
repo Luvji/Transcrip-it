@@ -35,6 +35,8 @@ pub struct MeetingNotes {
     meeting_id: String,
     strategy: String,
     approved: bool,
+    #[serde(default)]
+    stale: bool,
     overview: Vec<GroundedNote>,
     topics: Vec<GroundedNote>,
     decisions: Vec<GroundedNote>,
@@ -128,6 +130,7 @@ fn generate_notes(
         meeting_id: meeting_id.to_owned(),
         strategy: NOTES_STRATEGY.to_owned(),
         approved: false,
+        stale: false,
         overview,
         topics,
         decisions: select_segments(
@@ -229,7 +232,7 @@ fn persist_notes(database: &Database, notes: &MeetingNotes) -> Result<(), String
     let payload = serde_json::to_string(notes)
         .map_err(|error| format!("Could not serialize meeting notes: {error}"))?;
     database
-        .store_meeting_notes(&notes.meeting_id, &payload, notes.approved)
+        .store_meeting_notes(&notes.meeting_id, &payload, notes.approved, notes.stale)
         .map_err(|error| error.to_string())
 }
 
@@ -322,6 +325,7 @@ pub fn generate_meeting_notes(
         let mut notes: MeetingNotes = serde_json::from_str(&stored.payload_json)
             .map_err(|error| format!("Stored meeting notes are invalid: {error}"))?;
         notes.approved = stored.approved;
+        notes.stale = stored.stale;
         if notes.meeting_id != meeting_id {
             return Err("Stored meeting notes do not belong to this meeting.".to_owned());
         }
@@ -355,6 +359,10 @@ pub fn save_meeting_notes(
         .list_transcript(&notes.meeting_id)
         .map_err(|error| error.to_string())?;
     notes.approved = false;
+    notes.stale = database
+        .load_meeting_notes(&notes.meeting_id)
+        .map_err(|error| error.to_string())?
+        .is_some_and(|stored| stored.stale);
     validate_notes(&notes, &segments)?;
     persist_notes(&database, &notes)?;
     Ok(notes)
@@ -377,6 +385,16 @@ pub fn export_meeting_notes(
     if notes.meeting_id != meeting_id {
         return Err("Meeting notes do not belong to this meeting.".to_owned());
     }
+    let stored_is_stale = database
+        .load_meeting_notes(&meeting_id)
+        .map_err(|error| error.to_string())?
+        .is_some_and(|stored| stored.stale);
+    if notes.stale || stored_is_stale {
+        return Err(
+            "The transcript changed after these notes were generated. Regenerate and review them before exporting."
+                .to_owned(),
+        );
+    }
     let title = database
         .meeting_title(&meeting_id)
         .map_err(|error| error.to_string())?;
@@ -384,6 +402,7 @@ pub fn export_meeting_notes(
         .list_transcript(&meeting_id)
         .map_err(|error| error.to_string())?;
     notes.approved = true;
+    notes.stale = false;
     validate_notes(&notes, &segments)?;
     persist_notes(&database, &notes)?;
     let recording_path = database
@@ -447,6 +466,7 @@ mod tests {
         assert_eq!(notes.risks[0].text, segments[4].display_text);
         assert!(format_notes("Test", &notes, true).contains("[00:02]"));
         assert!(!notes.approved);
+        assert!(!notes.stale);
     }
 
     #[test]

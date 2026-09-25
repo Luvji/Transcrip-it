@@ -235,6 +235,7 @@ export interface MeetingNotes {
   meetingId: string;
   strategy: string;
   approved: boolean;
+  stale: boolean;
   overview: GroundedNote[];
   topics: GroundedNote[];
   decisions: GroundedNote[];

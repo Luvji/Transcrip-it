@@ -1,0 +1,3 @@
+ALTER TABLE meeting_notes
+ADD COLUMN stale INTEGER NOT NULL DEFAULT 0 CHECK (stale IN (0, 1));
+

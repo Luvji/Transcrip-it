@@ -224,6 +224,14 @@ impl Database {
                 supersedes_id
             ],
         )?;
+        if input.kind == DerivativeKind::Correction {
+            transaction.execute(
+                "UPDATE meeting_notes
+                 SET approved = 0, stale = 1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                 WHERE meeting_id = (SELECT meeting_id FROM transcript_segments WHERE id = ?1)",
+                [&input.segment_id],
+            )?;
+        }
         let derivative = find_by_id(&transaction, &input.id)?
             .ok_or_else(|| EvidenceError::SegmentNotFound(input.segment_id.clone()))?;
         transaction.commit()?;
@@ -369,6 +377,9 @@ mod tests {
     #[test]
     fn corrections_are_revisioned_without_changing_source_text() {
         let database = database_with_segment();
+        database
+            .store_meeting_notes("meeting-1", r#"{"meetingId":"meeting-1"}"#, true, false)
+            .unwrap();
         let first = database
             .append_segment_derivative(&correction("edit-1", "edit-key-1", "Correct words"))
             .unwrap();
@@ -383,6 +394,9 @@ mod tests {
         assert_eq!(current.source_text, "Original words");
         assert_eq!(current.display_text, "Final words");
         assert_eq!(current.active_correction_id.as_deref(), Some("edit-2"));
+        let notes = database.load_meeting_notes("meeting-1").unwrap().unwrap();
+        assert!(!notes.approved);
+        assert!(notes.stale);
     }
 
     #[test]
