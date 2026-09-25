@@ -2,6 +2,7 @@ mod child_process;
 pub mod database;
 pub mod engines;
 mod recording;
+mod summary;
 mod transcription;
 
 use database::{CreateMeetingInput, Database, DatabaseStatus, MeetingRecord};
@@ -232,6 +233,8 @@ pub fn run() {
             recording::play_recording_track,
             recording::playback_status,
             recording::stop_recording_playback,
+            summary::generate_meeting_notes,
+            summary::export_meeting_notes,
             transcription::transcription_model_status,
             transcription::transcription_status,
             transcription::install_transcription_model,

@@ -202,12 +202,15 @@ TRANSCRIP-IT - DEVELOPMENT TRACKER
 *- [EPIC] [TI-0059] Grounded summaries, decisions, and action tracking
   [DESC] Generate editable structured notes locally and make conclusions traceable to transcript evidence.
 
-    *- [FT] [TI-0060] Define and validate the structured summary schema
+    $- [FT] [TI-0060] Define and validate the structured summary schema
       [DESC] Cover overview, topics, decisions, actions, questions, risks, and next steps.
-    *- [FT] [TI-0061] Link generated decisions and actions to transcript evidence
+      [DESC] Added a validated local notes contract covering every required section, explicit generation strategy, grounded items, action owner/due fields, and an empty-transcript rejection.
+    $- [FT] [TI-0061] Link generated decisions and actions to transcript evidence
       [DESC] Every generated fact must carry valid segment identifiers and timestamps or be visibly uncertain.
-    *- [ENH] [TI-0062] Preserve unknown owners and dates as not specified
+      [DESC] Every extractive note and action carries source segment IDs, time ranges, and source-track provenance. Review citations navigate to the corresponding local audio and exports retain evidence timestamps.
+    $- [ENH] [TI-0062] Preserve unknown owners and dates as not specified
       [DESC] Reject unsupported claims instead of inventing details.
+      [DESC] The conservative MVP never infers an action owner or deadline; both remain explicitly “Not specified.” Missing note categories remain visible rather than being filled with invented content.
     *- [FT] [TI-0063] Run local structured generation through a replaceable model adapter
       [DESC] Start with Ollama and a quantized 3B to 4B model using constrained schemas and glossary support.
     *- [FT] [TI-0064] Edit, approve, and regenerate generated notes

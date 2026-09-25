@@ -212,6 +212,48 @@ export interface TranscriptSegment {
   activeCorrectionId: string | null;
 }
 
+export interface EvidenceReference {
+  segmentId: string;
+  startMs: number;
+  endMs: number;
+  sourceTrack: "mic" | "system" | null;
+}
+
+export interface GroundedNote {
+  text: string;
+  evidence: EvidenceReference[];
+}
+
+export interface ActionNote {
+  text: string;
+  owner: string;
+  dueDate: string;
+  evidence: EvidenceReference[];
+}
+
+export interface MeetingNotes {
+  meetingId: string;
+  strategy: string;
+  overview: GroundedNote[];
+  topics: GroundedNote[];
+  decisions: GroundedNote[];
+  actions: ActionNote[];
+  questions: GroundedNote[];
+  risks: GroundedNote[];
+  nextSteps: GroundedNote[];
+}
+
+export const summaryApi = {
+  async generate(meetingId: string): Promise<MeetingNotes> {
+    if (!isTauri()) throw new Error("Meeting notes are available in the Transcrip-it desktop app.");
+    return invoke("generate_meeting_notes", { meetingId });
+  },
+  async export(meetingId: string, format: "markdown" | "text"): Promise<string> {
+    if (!isTauri()) throw new Error("Meeting-notes export is available in the Transcrip-it desktop app.");
+    return invoke("export_meeting_notes", { meetingId, format });
+  },
+};
+
 export interface TranscriptionModelStatus {
   installed: boolean;
   packId: TranscriptionModelPack;

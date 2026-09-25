@@ -274,6 +274,18 @@ h1 { margin-bottom: 6px; color: var(--ink); font-size: clamp(29px, 3.2vw, 39px);
 .segment-editor > div { display: flex; justify-content: flex-end; gap: 5px; }
 .evidence-note { display: flex; align-items: center; gap: 7px; margin: 0; padding: 13px 28px; color: #6b6572; border-top: 1px solid var(--line); background: #faf9fb; font-size: 8px; }
 .evidence-note svg { color: #4fab7d; }
+.notes-dialog { width: min(860px, 100%); }
+.notes-body { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; overflow-y: auto; padding: 18px 28px; background: #faf9fb; }
+.notes-section { min-width: 0; align-content: start; padding: 14px; border: 1px solid #ebe7ef; border-radius: 10px; background: #fff; }
+.notes-section:first-child { grid-column: 1 / -1; }
+.notes-section h3 { margin-bottom: 9px; color: #5f5669; font-size: 11px; text-transform: uppercase; letter-spacing: .6px; }
+.notes-section article { padding: 9px 0; border-top: 1px solid #f0edf2; }
+.notes-section article:first-of-type { padding-top: 0; border-top: 0; }
+.notes-section article p { margin: 0 0 6px; color: #38323f; font-size: 10px; line-height: 1.55; }
+.notes-section article small { display: block; margin-bottom: 6px; color: #7d7585; font-size: 8px; }
+.notes-empty { margin: 0; color: #918a96; font-size: 9px; }
+.evidence-links { display: flex; flex-wrap: wrap; gap: 4px; }
+.evidence-links button { padding: 4px 6px; border: 0; border-radius: 5px; color: #6e52b1; background: #f0ebf9; cursor: pointer; font-size: 7px; font-weight: 700; }
 .search-results { display: grid; gap: 7px; padding-top: 6px; }
 .search-results h2 { margin: 0 0 3px; font-size: 13px; }
 .search-results > button { display: grid; gap: 6px; padding: 12px 14px; border: 1px solid #e5e0eb; border-radius: 9px; background: #fff; cursor: pointer; text-align: left; }
@@ -322,6 +334,8 @@ h1 { margin-bottom: 6px; color: var(--ink); font-size: clamp(29px, 3.2vw, 39px);
   .meeting-actions { flex-wrap: wrap; }
   .setting-row { align-items: flex-start; flex-direction: column; gap: 12px; }
   .setting-row select { width: 100%; }
+  .notes-body { grid-template-columns: 1fr; padding: 14px 17px; }
+  .notes-section:first-child { grid-column: auto; }
 }
 
 @media (prefers-reduced-motion: reduce) {
