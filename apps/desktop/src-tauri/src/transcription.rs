@@ -582,7 +582,11 @@ pub fn export_transcript(
     database: tauri::State<'_, Database>,
     meeting_id: String,
     format: String,
+    review_confirmed: bool,
 ) -> Result<String, String> {
+    if !review_confirmed {
+        return Err("Review the transcript and confirm it before exporting.".to_owned());
+    }
     if !matches!(format.as_str(), "markdown" | "text") {
         return Err("Export format must be markdown or text.".to_owned());
     }

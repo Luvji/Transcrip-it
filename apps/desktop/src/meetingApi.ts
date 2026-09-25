@@ -248,9 +248,9 @@ export const summaryApi = {
     if (!isTauri()) throw new Error("Meeting notes are available in the Transcrip-it desktop app.");
     return invoke("generate_meeting_notes", { meetingId });
   },
-  async export(meetingId: string, format: "markdown" | "text"): Promise<string> {
+  async export(meetingId: string, format: "markdown" | "text", reviewConfirmed: boolean): Promise<string> {
     if (!isTauri()) throw new Error("Meeting-notes export is available in the Transcrip-it desktop app.");
-    return invoke("export_meeting_notes", { meetingId, format });
+    return invoke("export_meeting_notes", { meetingId, format, reviewConfirmed });
   },
 };
 
@@ -347,9 +347,9 @@ export const transcriptionApi = {
     if (!isTauri() || query.trim().length < 2) return [];
     return invoke("search_transcripts", { query });
   },
-  async export(meetingId: string, format: "markdown" | "text"): Promise<string> {
+  async export(meetingId: string, format: "markdown" | "text", reviewConfirmed: boolean): Promise<string> {
     if (!isTauri()) throw new Error("Transcript export is available in the Transcrip-it desktop app.");
-    return invoke("export_transcript", { meetingId, format });
+    return invoke("export_transcript", { meetingId, format, reviewConfirmed });
   },
   async correct(segmentId: string, text: string): Promise<{ segmentId: string; sourceText: string; displayText: string; activeCorrectionId: string | null }> {
     if (!isTauri()) throw new Error("Transcript correction is available in the Transcrip-it desktop app.");
