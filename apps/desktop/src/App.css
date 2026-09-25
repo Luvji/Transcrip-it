@@ -283,6 +283,11 @@ h1 { margin-bottom: 6px; color: var(--ink); font-size: clamp(29px, 3.2vw, 39px);
 .notes-section article:first-of-type { padding-top: 0; border-top: 0; }
 .notes-section article p { margin: 0 0 6px; color: #38323f; font-size: 10px; line-height: 1.55; }
 .notes-section article small { display: block; margin-bottom: 6px; color: #7d7585; font-size: 8px; }
+.notes-section textarea { width: 100%; min-height: 62px; resize: vertical; padding: 8px 9px; color: #38323f; border: 1px solid #ded8e5; border-radius: 7px; background: #fdfcfe; font: inherit; font-size: 10px; line-height: 1.5; }
+.notes-section textarea:focus, .action-note-fields input:focus { outline: 2px solid #d7c5fa; border-color: #8b61d2; }
+.action-note-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin: 7px 0; }
+.action-note-fields label { display: grid; gap: 3px; color: #77707e; font-size: 8px; font-weight: 700; }
+.action-note-fields input { min-width: 0; padding: 6px 7px; border: 1px solid #ded8e5; border-radius: 6px; background: #fdfcfe; font-size: 9px; }
 .notes-empty { margin: 0; color: #918a96; font-size: 9px; }
 .evidence-links { display: flex; flex-wrap: wrap; gap: 4px; }
 .evidence-links button { padding: 4px 6px; border: 0; border-radius: 5px; color: #6e52b1; background: #f0ebf9; cursor: pointer; font-size: 7px; font-weight: 700; }

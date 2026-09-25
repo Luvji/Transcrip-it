@@ -55,10 +55,16 @@ const MIGRATIONS: &[Migration] = &[
         name: "transcript_source_track",
         sql: include_str!("migrations/0008_transcript_source_track.sql"),
     },
+    Migration {
+        version: 9,
+        name: "meeting_notes",
+        sql: include_str!("migrations/0009_meeting_notes.sql"),
+    },
 ];
 
 mod evidence;
 mod meetings;
+mod notes;
 mod transcripts;
 mod workflow;
 pub use evidence::{
@@ -269,6 +275,7 @@ mod tests {
         let tables = [
             "actions",
             "jobs",
+            "meeting_notes",
             "meetings",
             "schema_migrations",
             "settings",
@@ -286,7 +293,7 @@ mod tests {
             assert!(exists, "expected table {table}");
         }
 
-        assert_eq!(current_schema_version(&connection).unwrap(), 8);
+        assert_eq!(current_schema_version(&connection).unwrap(), 9);
     }
 
     #[test]
@@ -302,7 +309,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(migration_count, 8);
+        assert_eq!(migration_count, 9);
     }
 
     #[test]
@@ -370,7 +377,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(upgraded, ("job-1".to_owned(), "queued".to_owned(), None));
-        assert_eq!(current_schema_version(&connection).unwrap(), 8);
+        assert_eq!(current_schema_version(&connection).unwrap(), 9);
     }
 
     #[test]

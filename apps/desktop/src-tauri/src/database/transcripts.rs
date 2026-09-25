@@ -168,6 +168,10 @@ impl Database {
         )?;
         if deleted > 0 {
             transaction.execute(
+                "DELETE FROM meeting_notes WHERE meeting_id = ?1",
+                [meeting_id],
+            )?;
+            transaction.execute(
                 "UPDATE meetings SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?1",
                 [meeting_id],
             )?;
@@ -335,9 +339,13 @@ mod tests {
             .unwrap();
         assert!(database.search_transcripts("hello").unwrap().is_empty());
         assert_eq!(database.search_transcripts("corrected").unwrap().len(), 1);
+        database
+            .store_meeting_notes("m1", r#"{"meetingId":"m1"}"#, false)
+            .unwrap();
         assert!(database.delete_transcript("m1").unwrap());
         assert!(database.list_transcript("m1").unwrap().is_empty());
         assert!(database.search_transcripts("corrected").unwrap().is_empty());
+        assert!(database.load_meeting_notes("m1").unwrap().is_none());
         assert!(!database.delete_transcript("m1").unwrap());
     }
 }

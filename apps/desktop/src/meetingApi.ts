@@ -234,6 +234,7 @@ export interface ActionNote {
 export interface MeetingNotes {
   meetingId: string;
   strategy: string;
+  approved: boolean;
   overview: GroundedNote[];
   topics: GroundedNote[];
   decisions: GroundedNote[];
@@ -248,9 +249,17 @@ export const summaryApi = {
     if (!isTauri()) throw new Error("Meeting notes are available in the Transcrip-it desktop app.");
     return invoke("generate_meeting_notes", { meetingId });
   },
-  async export(meetingId: string, format: "markdown" | "text", reviewConfirmed: boolean): Promise<string> {
+  async regenerate(meetingId: string): Promise<MeetingNotes> {
+    if (!isTauri()) throw new Error("Meeting notes are available in the Transcrip-it desktop app.");
+    return invoke("regenerate_meeting_notes", { meetingId });
+  },
+  async save(notes: MeetingNotes): Promise<MeetingNotes> {
+    if (!isTauri()) throw new Error("Meeting notes are available in the Transcrip-it desktop app.");
+    return invoke("save_meeting_notes", { notes });
+  },
+  async export(meetingId: string, format: "markdown" | "text", reviewConfirmed: boolean, notes: MeetingNotes): Promise<string> {
     if (!isTauri()) throw new Error("Meeting-notes export is available in the Transcrip-it desktop app.");
-    return invoke("export_meeting_notes", { meetingId, format, reviewConfirmed });
+    return invoke("export_meeting_notes", { meetingId, format, reviewConfirmed, notes });
   },
 };
 

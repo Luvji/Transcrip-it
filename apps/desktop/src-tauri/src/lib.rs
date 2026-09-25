@@ -234,6 +234,8 @@ pub fn run() {
             recording::playback_status,
             recording::stop_recording_playback,
             summary::generate_meeting_notes,
+            summary::regenerate_meeting_notes,
+            summary::save_meeting_notes,
             summary::export_meeting_notes,
             transcription::transcription_model_status,
             transcription::transcription_status,

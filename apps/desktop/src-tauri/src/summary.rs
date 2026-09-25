@@ -1,8 +1,10 @@
 use crate::database::{Database, TranscriptSegmentRecord};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf};
 
-#[derive(Clone, Debug, Serialize)]
+const NOTES_STRATEGY: &str = "Local extractive draft; review required";
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EvidenceReference {
     segment_id: String,
@@ -11,14 +13,14 @@ pub struct EvidenceReference {
     source_track: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GroundedNote {
     text: String,
     evidence: Vec<EvidenceReference>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ActionNote {
     text: String,
@@ -27,11 +29,12 @@ pub struct ActionNote {
     evidence: Vec<EvidenceReference>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MeetingNotes {
     meeting_id: String,
     strategy: String,
+    approved: bool,
     overview: Vec<GroundedNote>,
     topics: Vec<GroundedNote>,
     decisions: Vec<GroundedNote>,
@@ -123,7 +126,8 @@ fn generate_notes(
         .collect();
     let notes = MeetingNotes {
         meeting_id: meeting_id.to_owned(),
-        strategy: "Local extractive draft; review required".to_owned(),
+        strategy: NOTES_STRATEGY.to_owned(),
+        approved: false,
         overview,
         topics,
         decisions: select_segments(
@@ -162,7 +166,7 @@ fn generate_notes(
             20,
         ),
     };
-    validate_notes(&notes)?;
+    validate_notes(&notes, segments)?;
     Ok(notes)
 }
 
@@ -176,7 +180,22 @@ fn validate_grounded(note: &GroundedNote) -> bool {
         })
 }
 
-fn validate_notes(notes: &MeetingNotes) -> Result<(), String> {
+fn evidence_exists(evidence: &EvidenceReference, segments: &[TranscriptSegmentRecord]) -> bool {
+    segments.iter().any(|segment| {
+        segment.id == evidence.segment_id
+            && segment.start_ms == evidence.start_ms
+            && segment.end_ms == evidence.end_ms
+            && segment.source_track == evidence.source_track
+    })
+}
+
+fn validate_notes(
+    notes: &MeetingNotes,
+    segments: &[TranscriptSegmentRecord],
+) -> Result<(), String> {
+    if notes.meeting_id.trim().is_empty() || notes.strategy != NOTES_STRATEGY {
+        return Err("Meeting notes have invalid identity or provenance.".to_owned());
+    }
     let grounded = notes
         .overview
         .iter()
@@ -185,17 +204,33 @@ fn validate_notes(notes: &MeetingNotes) -> Result<(), String> {
         .chain(&notes.questions)
         .chain(&notes.risks)
         .chain(&notes.next_steps);
-    if grounded.into_iter().any(|note| !validate_grounded(note))
-        || notes.actions.iter().any(|action| {
-            action.text.trim().is_empty()
-                || action.owner.trim().is_empty()
-                || action.due_date.trim().is_empty()
-                || action.evidence.is_empty()
-        })
-    {
+    if grounded.into_iter().any(|note| {
+        !validate_grounded(note)
+            || note
+                .evidence
+                .iter()
+                .any(|evidence| !evidence_exists(evidence, segments))
+    }) || notes.actions.iter().any(|action| {
+        action.text.trim().is_empty()
+            || action.owner.trim().is_empty()
+            || action.due_date.trim().is_empty()
+            || action.evidence.is_empty()
+            || action
+                .evidence
+                .iter()
+                .any(|evidence| !evidence_exists(evidence, segments))
+    }) {
         return Err("Generated notes failed evidence validation.".to_owned());
     }
     Ok(())
+}
+
+fn persist_notes(database: &Database, notes: &MeetingNotes) -> Result<(), String> {
+    let payload = serde_json::to_string(notes)
+        .map_err(|error| format!("Could not serialize meeting notes: {error}"))?;
+    database
+        .store_meeting_notes(&notes.meeting_id, &payload, notes.approved)
+        .map_err(|error| error.to_string())
 }
 
 fn timestamp(milliseconds: i64) -> String {
@@ -280,7 +315,49 @@ pub fn generate_meeting_notes(
     let segments = database
         .list_transcript(&meeting_id)
         .map_err(|error| error.to_string())?;
-    generate_notes(&meeting_id, &segments)
+    if let Some(stored) = database
+        .load_meeting_notes(&meeting_id)
+        .map_err(|error| error.to_string())?
+    {
+        let mut notes: MeetingNotes = serde_json::from_str(&stored.payload_json)
+            .map_err(|error| format!("Stored meeting notes are invalid: {error}"))?;
+        notes.approved = stored.approved;
+        if notes.meeting_id != meeting_id {
+            return Err("Stored meeting notes do not belong to this meeting.".to_owned());
+        }
+        validate_notes(&notes, &segments)?;
+        return Ok(notes);
+    }
+    let notes = generate_notes(&meeting_id, &segments)?;
+    persist_notes(&database, &notes)?;
+    Ok(notes)
+}
+
+#[tauri::command]
+pub fn regenerate_meeting_notes(
+    database: tauri::State<'_, Database>,
+    meeting_id: String,
+) -> Result<MeetingNotes, String> {
+    let segments = database
+        .list_transcript(&meeting_id)
+        .map_err(|error| error.to_string())?;
+    let notes = generate_notes(&meeting_id, &segments)?;
+    persist_notes(&database, &notes)?;
+    Ok(notes)
+}
+
+#[tauri::command]
+pub fn save_meeting_notes(
+    database: tauri::State<'_, Database>,
+    mut notes: MeetingNotes,
+) -> Result<MeetingNotes, String> {
+    let segments = database
+        .list_transcript(&notes.meeting_id)
+        .map_err(|error| error.to_string())?;
+    notes.approved = false;
+    validate_notes(&notes, &segments)?;
+    persist_notes(&database, &notes)?;
+    Ok(notes)
 }
 
 #[tauri::command]
@@ -289,6 +366,7 @@ pub fn export_meeting_notes(
     meeting_id: String,
     format: String,
     review_confirmed: bool,
+    mut notes: MeetingNotes,
 ) -> Result<String, String> {
     if !review_confirmed {
         return Err("Review the meeting notes and confirm them before exporting.".to_owned());
@@ -296,13 +374,18 @@ pub fn export_meeting_notes(
     if !matches!(format.as_str(), "markdown" | "text") {
         return Err("Export format must be markdown or text.".to_owned());
     }
+    if notes.meeting_id != meeting_id {
+        return Err("Meeting notes do not belong to this meeting.".to_owned());
+    }
     let title = database
         .meeting_title(&meeting_id)
         .map_err(|error| error.to_string())?;
     let segments = database
         .list_transcript(&meeting_id)
         .map_err(|error| error.to_string())?;
-    let notes = generate_notes(&meeting_id, &segments)?;
+    notes.approved = true;
+    validate_notes(&notes, &segments)?;
+    persist_notes(&database, &notes)?;
     let recording_path = database
         .meeting_recording_path(&meeting_id)
         .map_err(|error| error.to_string())?
@@ -363,10 +446,22 @@ mod tests {
         assert_eq!(notes.questions[0].evidence[0].start_ms, 3_000);
         assert_eq!(notes.risks[0].text, segments[4].display_text);
         assert!(format_notes("Test", &notes, true).contains("[00:02]"));
+        assert!(!notes.approved);
     }
 
     #[test]
     fn notes_require_a_transcript() {
         assert!(generate_notes("meeting-1", &[]).is_err());
+    }
+
+    #[test]
+    fn edited_notes_must_retain_real_evidence() {
+        let segments = vec![segment("s1", 0, "We agreed to ship the reviewed package.")];
+        let mut notes = generate_notes("meeting-1", &segments).unwrap();
+        notes.overview[0].text = "Edited overview".to_owned();
+        assert!(validate_notes(&notes, &segments).is_ok());
+
+        notes.overview[0].evidence[0].segment_id = "invented".to_owned();
+        assert!(validate_notes(&notes, &segments).is_err());
     }
 }

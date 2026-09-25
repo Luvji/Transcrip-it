@@ -213,8 +213,10 @@ TRANSCRIP-IT - DEVELOPMENT TRACKER
       [DESC] The conservative MVP never infers an action owner or deadline; both remain explicitly “Not specified.” Missing note categories remain visible rather than being filled with invented content.
     *- [FT] [TI-0063] Run local structured generation through a replaceable model adapter
       [DESC] Start with Ollama and a quantized 3B to 4B model using constrained schemas and glossary support.
-    *- [FT] [TI-0064] Edit, approve, and regenerate generated notes
+    $- [FT] [TI-0064] Edit, approve, and regenerate generated notes
       [DESC] Treat summaries as reviewable drafts rather than legally authoritative records.
+      [DESC] Structured notes now persist locally across reopening, allow passage/action/owner/due-date edits, save as unapproved drafts, and deliberately regenerate from the current corrected transcript. Any edit or regeneration clears review approval.
+      [DESC] Approved export writes the exact edited draft. Backend validation rejects unconfirmed exports, mismatched meetings, and citations that no longer exactly match a real transcript segment; meeting deletion cascades to the stored notes.
     *- [FT] [TI-0065] Add meeting-specific summary templates
       [DESC] Include general discussion, daily stand-up, sprint review, and interview templates.
     *- [ENH] [TI-0066] Chunk long transcripts and synthesize grounded results
