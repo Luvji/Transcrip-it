@@ -321,6 +321,9 @@ TRANSCRIP-IT - DEVELOPMENT TRACKER
       [DESC] Acceptance: keep the newest live passages visible, expose the latest audio timestamp checked even when a window yields no text, and distinguish active processing from a caught-up preview.
       [DESC] Implemented checkedThroughMs progress from the latest readable chunk, newest-three passage rendering with retained-history count, caught-up/processing/delayed status labels, a 20-second lag warning, and a no-clear-speech state that still reports checked audio progress.
       [DESC] Verified later test3 windows directly with the installed Fast model, 40 Rust tests, four frontend tests, warning-free Clippy, repository structure checks, and the production build; native visual acceptance remains.
+      [DESC] Native defect evidence (Oct 6, 2026, meeting "split and merge"): the caption history was retained in state but only the latest three passages were rendered, while the grid layout prevented reliable inner scrolling. Exact Fast-model replay of isolated live windows changed meeting context at 00:48 and 03:36; the complete Fast pass was better, proving short-window decoding instability rather than missing audio.
+      [DESC] Same-audio benchmarking found Balanced English corrected the context-changing samples. The four-minute system track took 100.79 seconds, and concurrent eight-second two-track previews took up to 10.17 seconds, so the accuracy-first live path may update more slowly on this CPU.
+      [DESC] Live preview now automatically prefers an installed Balanced model, transparently falls back to Fast, reports which quality is active, refreshes promptly after inference, renders the complete session history, and provides a bounded independently scrollable caption panel.
     *- [FT] [TI-0097] Add Windows and macOS platform support
       [DESC] Begin after the Linux workflow and audio interfaces stabilize.
     *- [FT] [TI-0098] Add platform meeting bots

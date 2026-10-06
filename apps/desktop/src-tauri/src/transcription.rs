@@ -155,6 +155,7 @@ pub struct LiveTranscriptLine {
 pub struct LiveTranscriptPreview {
     lines: Vec<LiveTranscriptLine>,
     checked_through_ms: u64,
+    model_pack: String,
 }
 
 #[tauri::command]
@@ -364,13 +365,7 @@ fn run_live_preview(
     meeting_id: &str,
     microphone_track: &str,
 ) -> Result<LiveTranscriptPreview, String> {
-    let paths = model_paths(app, model_spec("fast")?)?;
-    if !paths.binary.is_file() || !paths.model.is_file() {
-        return Err(
-            "Install the Fast English model in Settings to enable live transcript previews."
-                .to_owned(),
-        );
-    }
+    let (paths, model_pack) = live_preview_model(app)?;
     let state = database
         .meeting_state(meeting_id)
         .map_err(|error| error.to_string())?;
@@ -526,7 +521,21 @@ fn run_live_preview(
     Ok(LiveTranscriptPreview {
         lines,
         checked_through_ms,
+        model_pack: model_pack.to_owned(),
     })
+}
+
+fn live_preview_model(app: &tauri::AppHandle) -> Result<(ModelPaths, &'static str), String> {
+    for pack in ["balanced", "fast"] {
+        let paths = model_paths(app, model_spec(pack)?)?;
+        if paths.binary.is_file() && paths.model.is_file() {
+            return Ok((paths, pack));
+        }
+    }
+    Err(
+        "Install Fast or Balanced English in Settings to enable live transcript previews."
+            .to_owned(),
+    )
 }
 
 const LIVE_PREVIEW_WINDOW_MS: u64 = 8_000;
@@ -1479,9 +1488,11 @@ mod tests {
         let value = serde_json::to_value(LiveTranscriptPreview {
             lines: Vec::new(),
             checked_through_ms: 128_400,
+            model_pack: "balanced".to_owned(),
         })
         .unwrap();
         assert_eq!(value["checkedThroughMs"], 128_400);
+        assert_eq!(value["modelPack"], "balanced");
     }
 
     #[test]
